@@ -1,0 +1,17 @@
+Backlog:
+  ☐ Deploy on HF intel-spr x2 endpoint with scale-to-zero
+
+Blog:
+  ☐ Start write up to bring more definition and clarify motivation etc.
+
+Modelling:
+  ☐ Define architecture clearly and document it in writeup
+  ☐ Implement unit normaliser and NewtonPhysics engine (4 routes + unsupported gate) @high
+  ☐ Implement TinyLLM encoder with route, slot, uncertainty, action and conflict heads
+  ☐ Train with combined loss; plot learning curves and calibration
+
+Data:
+  ☐ Build synthetic data using LLMs @high
+
+Archive:
+  ✔ Scaffold repo with uv and torch @done(26-10-29) @project(Backlog)
