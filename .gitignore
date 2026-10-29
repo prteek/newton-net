@@ -5,3 +5,6 @@ data/
 *.pdf
 *.png
 *.html
+
+blog/assets/
+blog/*.md
