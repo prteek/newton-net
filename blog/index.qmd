@@ -1,0 +1,39 @@
+---
+# The blog post: `QUARTO_PYTHON=.venv/bin/python quarto render blog/index.qmd` (from the repo root) writes
+# computing-neural-net.md next to this file, ready to paste into the Hugging Face article editor, with
+# its figures in assets/ (upload each in the editor, which replaces its local link). Code cells import user_journey.
+format:
+  gfm:
+    output-file: computing-neural-net
+    wrap: preserve
+filters:
+  - _hf-markdown.lua  # inline maths as \\( ... \\)
+execute:
+  echo: false
+  warning: false
+  engine: jupyter
+---
+
+```{python}
+import shutil
+from pathlib import Path
+import numpy as np
+
+import pandas as pd
+from IPython.display import Markdown, display
+
+# figures are saved next to the post; the article editor swaps each for its own link when it is uploaded
+ASSETS = Path("assets")
+ASSETS.mkdir(exist_ok=True)
+```
+
+# Can neural nets compute ?
+
+## Simulating Newton's equations inside a network
+
+I recently came across the amazing idea of embedding a CPU into the model weights itself [Qwenputer](https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer), it is very different from what we have currently with LLMs where they make a tool call (to something like python) to perform computations where necessary. LLMs inherently cannot compute anything, so if asked *what's 1+1* they look up in their training data and find examples matching this query and get an answer from there. This creates issues when for e.g. the computaion is complex or it is a series of computations where any noise in intermediate steps can compound severly and corrupt the final results.
+
+The idea behind Qwenputer seems to be that computations happen in a forward pass itself once the llm decides that a computation is indeed required.
+
+Building on same principles I was playing around with the idea of having defined computations or indeed bulding blocks of computation that then combine to give more reliable and repeateble outputs. <br/>
+As an experiment in this direction, designing a physics simulator inside the neural net itself seems like a good starting point. The idea is simple
