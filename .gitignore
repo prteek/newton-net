@@ -1,2 +1,7 @@
 *.env
 history.md
+data/
+*.csv
+*.pdf
+*.png
+*.html
