@@ -19,11 +19,11 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 - Deceleration as discrete buckets (e.g. 19 from 1–10 m/s²) rather than one continuous head, for interpretability.
 - We will focus on different mean levels due to unknown/uncertain inputs but not care about uncertainty or propagating it in the first version
 - Action head (answer / refuse) we will either answer or reject a request even in cases of ambiguity
-- Layered gates: unsupported prob > 0.5, confidence and entropy thresholds, input validation, output sanity and consistency checks
 
 # Training
 
-- Train jointly: the parser has to learn friction variation from words like "wet road" when not explicitly given
+- Train jointly, this is in contrast to training a claseeifier and modelling physics separately and gluing them together
+- Joint training lets improvement of both parts together and allows the parser (TinyLLM) to learn friction variation from words like "wet road" when not explicitly given among other things
 - Start with full supervision (route, slots, units, action, target); answer-only supervision risks shortcuts
 
 # Deployment
