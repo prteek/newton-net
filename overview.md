@@ -5,7 +5,7 @@ date: 2026-10-29
 
 # Objective
 
-Build Newton net: a TinyLLM router plus a fixed Newtonian physics engine in one computation graph. It is an alternative system to prevalent LLM tool calling systems and is heavily inspired by Qwenputer where a computer was put inside Qwen3.5 model. It should answer short questions in a car driving context with exact maths, calibrated uncertainty and a trace, and abstain on anything out of scope.
+Build Newton net: a TinyLLM router plus a fixed Newtonian physics (3 equations of motion) engine in one computation graph. It is an alternative system to prevalent LLM tool calling systems and is heavily inspired by Qwenputer where a computer was put inside Qwen3.5 model. It should answer short questions in a car driving context with exact maths, outputing both result and a trace, and abstain on anything out of scope.
 
 # Inputs
 
