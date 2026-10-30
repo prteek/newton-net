@@ -8,3 +8,4 @@ data/
 
 blog/assets/
 blog/*.md
+*__pycache__/
