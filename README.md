@@ -1,6 +1,6 @@
 # Newton net
 
-Newton net is a tiny language model (about 0.25–0.5M parameters) that reads short driving questions (≤160 characters), picks a simple laws of motion calculation, estimates uncertain inputs (speed, deceleration, reaction time) and runs a fixed, differentiable Newtonian engine inside its own `forward()`. It returns an answer, an uncertainty interval and a physics trace. The neural part interprets the question; the maths is exact.
+Newton net is a tiny language model (about 0.25–0.5M parameters) that reads short driving questions (≤160 characters), picks a simple laws of motion calculation, estimates uncertain inputs (speed, acceleration or deceleration, reaction time) and runs a fixed, differentiable Newtonian engine inside its own `forward()`. It returns an answer, an uncertainty interval and a physics trace. The neural part interprets the question; the maths is exact. Questions cover braking, accelerating and constant-speed driving, not just stopping distances.
 
 ## Project docs
 
