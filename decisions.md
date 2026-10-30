@@ -79,7 +79,7 @@ Question (≤160 chars)
 3. Reader + router: TinyLLM (learned)
   ├─ target head:  speed | time | distance | acceleration | force | refuse ──► Refusal
   ├─ order head:   which speed is the start (u) and which the final speed (v)
-  ├─ sign head:    braking (−) | accelerating (+)
+  ├─ sign head:    braking (−) | accelerating (+); soft (2p − 1) in training
   └─ implied:      from rest → u = 0, stop → v = 0,
                    no a stated → none | 0 (cruising) | road surface → |a| (learned value)
   │
@@ -100,9 +100,17 @@ Question (≤160 chars)
 ## Training
 Training data is only (question, answer, unit); see `dataset/generate.py`.
 - **Target head:** cross-entropy on the target named by the answer's unit (no unit → refuse).
-- **Order, sign and implied heads:** by matching the answer. Together their choices make a *reading*: one complete set of known values. A question has at most 48 readings (2 speed orders × 2 signs × u = 0 or not × v = 0 or not × 3 ways to fill a), usually under 16 (8.7 on average). The planner runs on each; a reading *matches* if it reproduces the labelled answer (within 5% on log|answer|, same sign), or refuses when the label has no answer. The loss raises the probability of the matching readings: −log Σ P(reading) · match(reading), where P(reading) is the product of the heads' probabilities.
+- **Order and implied heads:** by matching the answer. Together with the sign, their choices make a *reading*: one complete set of known values. A question has at most 24 readings (2 speed orders × u = 0 or not × v = 0 or not × 3 ways to fill a), 5.7 on average. The planner runs on each; a reading *matches* if it reproduces the labelled answer (within 5% on log|answer|, same sign), or refuses when the label has no answer. The loss raises the probability of the matching readings: −log Σ P(reading) · match(reading), where P(reading) is the product of the heads' probabilities.
+- **Why match answers instead of labelling each choice:**
+  - **Simple data.** Each question needs only its answer and unit. Labelling which number is which quantity, the sign and every implied value is the expensive, error-prone part of making data, and it doesn't survive paraphrasing: an LLM rewrite or a real question–answer pair comes with an answer, not with labels.
+  - **The extractor makes the search small.** The unit fixes every value's quantity except which speed is the start and which the end, so only a handful of readings exist per question, few enough to run the planner on all of them.
+  - **The physics does the judging.** A wrong reading usually fails outright (a negative distance, a time before the start, a conflict) rather than giving a near miss, so the planner is a strong teacher. This is what makes joint training real: the router learns to read questions from whether the physics gets the answer right.
+  - **Cost:** about 6 planner runs per question in training, noisier learning than with direct labels, and choices the answer can't tell apart (below).
+- **Sign head: soft sign, trained through the physics.** In training the sign is not enumerated: the sign head's expected sign 2p − 1 (p = P(accelerating)) multiplies a stated a and F, and a road-surface |a|, as a number. So the sign head gets gradient through the planner's equations, like |a|: braking at 5 m/s² read with p = 0.1 gives a = −4 m/s² and a stopping time of 5 s instead of 4 s, and the gradient pushes p down. At inference the sign is hard (±1), so stated values are used exactly. It halves the readings per question.
+  - **Catch: a wrong sign can't be fixed by gradient alone.** Stopping distance (−u²/2a) and stopping time (−u/a) depend on 1/a, so as 2p − 1 moves through 0 on the way from the wrong sign to the right one, the answer goes to infinity, and the planner's guards refuse readings with the wrong sign (a negative distance), which then give no gradient.
+  - **Warm-up:** start training with the sign enumerated as −1 and +1 inside the readings (`readings(..., sign=None)`) so the sign head learns which side it is on from matching answers, then switch to the soft sign once it is confident, to fine-tune it through the physics.
 - **Road-surface |a|:** a continuous value, trained by the answer loss through the planner's arithmetic.
-- **What the answer can't tell apart:** in 39% of generated questions more than one reading matches. Mostly time symmetry: braking from 124 km/h to a stop covers the same distance and takes the same time as accelerating from rest to 124 km/h, so for distance and time questions the answer can't say which. The answer is right either way, but the trace can show the mirror reading. Signed answers (acceleration, force) do tell them apart and teach the shared encoder what "brake" means.
+- **What the answer can't tell apart:** with the sign enumerated, more than one reading matches in 39% of generated questions. Mostly time symmetry: braking from 124 km/h to a stop covers the same distance and takes the same time as accelerating from rest to 124 km/h, so for distance and time questions the answer can't say which. The answer is right either way, but the trace can show the mirror reading. Signed answers (acceleration, force) do tell them apart and teach the shared encoder what "brake" means.
 - **Refused questions:** off-topic and other reader refusals train only the target head (refuse); questions refused later (missing input, contradiction, impossible motion) train the target head on their unit and push the readings towards ones the planner refuses.
 
 ## Why both a router and a planner
@@ -132,7 +140,7 @@ Decides only what the extractor leaves open; anything else is the planner's job.
 - **Target:** probabilities over speed, time, distance, acceleration, force and refuse; trained on the target the answer's unit names. At inference the most likely target is used, and its probability is shown as confidence.
 - **Refusals on meaning** (the refuse class): off topic, very ambiguous, more than one question, no question asked.
 - **Order:** for two speeds, which is the start (u) and which the final speed (v); for one speed, which of the two it is.
-- **Sign:** braking (−) or accelerating (+), one per question, applied to a stated a and F. Words such as "brakes", "decel", "stop within" point to braking; "accelerates", "floor it", "pulls away" to accelerating. When a or F is the target, the planner's physics gives its sign instead.
+- **Sign:** braking (−) or accelerating (+), one per question, applied to a stated a and F. Soft in training (the expected sign 2p − 1), hard at inference (see Training). Words such as "brakes", "decel", "stop within" point to braking; "accelerates", "floor it", "pulls away" to accelerating. When a or F is the target, the planner's physics gives its sign instead.
 - **Implied values,** each reported as an assumption in the trace:
 
   | Not stated | Choice |
@@ -143,12 +151,12 @@ Decides only what the extractor leaves open; anything else is the planner's job.
   | Acceleration, braking on a road surface (or none given) | sign × learned \|a\| for that surface |
   | Anything else (speed when not from rest, distance or time) | nothing: the planner refuses with what's missing |
 
-- **Trained by:** the target on its label; order, sign and implied values by matching the answer (see Training). None of them has its own label.
+- **Trained by:** the target on its label; order and implied values by matching the answer; the sign and the road-surface |a| through the planner's equations (see Training). None of them has its own label.
 
 ## 4. Assembler
 Implemented in `model/reading.py`, which also lists every reading for training.
 - Combines the extractor's values with the router's choices into one value per quantity, in SI.
-- Applies the sign to a stated a and F: sign × |value|, so a value written with a minus isn't flipped twice.
+- Applies the sign to a stated a and F: sign × |value|, so a value written with a minus isn't flipped twice. The sign is the expected sign 2p − 1 in training and ±1 at inference.
 - Mass is 2,000 kg unless stated (a fixed default, not learned).
 - An implied value never fills the quantity being asked for (no implied a when a is the target).
 - **Refuses:** two values of the same dimension ("for 14 minutes, or maybe 11 minutes"), or more than two speeds. Two speeds are not a duplicate: they are a start and a final speed.
