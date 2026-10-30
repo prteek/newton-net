@@ -49,7 +49,7 @@ Everything is open:
 
 ## The data
 
-<!-- TODO: synthetic scenarios over braking, accelerating and constant speed (speed 5–35 m/s, mass 900–2,200 kg, deceleration 1–9 m/s², dry/wet/icy) and 20–50 question templates plus paraphrases, ≤160 characters. Show one question and its answer before the totals. -->
+<!-- TODO: synthetic scenarios over braking, accelerating and constant speed (speed 5–35 m/s, deceleration 1–9 m/s², dry/wet/icy) and 20–50 question templates plus paraphrases, ≤160 characters. Show one question and its answer before the totals. -->
 
 ## Five routes
 
