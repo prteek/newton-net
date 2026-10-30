@@ -7,7 +7,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # Scope
 
-- Five routes: `resulting_distance`, `required_[acceleration|deceleration]`, `resulting_time`, `resulting_speed`, `unsupported`. Without an abstain route the soft mixture makes up answers for off-topic questions.
+- Routes name the quantity asked for, not a formula: speed, time, distance, acceleration, force, or refusal (see System requirements → 2. Reader + router). The planner chooses the formulas. Without a refusal route the model would make up answers for off-topic questions.
 - Motion is not just braking: each question is one of three motion types, braking, accelerating or constant speed, and every route covers each type where it makes sense (e.g. distance to stop, distance to reach 60 mph from rest, distance covered in 20 minutes at 70 mph). Acceleration is signed in the engine: negative when braking.
 - Reaction time is out of scope: there is no reaction phase, so braking starts immediately and time is a single variable t. Questions that mention a reaction time are not generated.
 - Inputs are ≤160-character, Twitter-like questions.
@@ -16,7 +16,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # Architecture
 
-- Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets routing be learned from answers.
+- Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the reading of values be learned from answers; the choice of target is learned from its label (see System requirements → 2. Reader + router).
 - TinyLLM: d_model 48, 1–2 layers, 48–64 tokens, 2k–8k vocab (~0.25–0.5M params).
 - The model extracts value + unit; a deterministic normaliser converts to SI. Unit conversion is never learned.
 - Acceleration magnitude (braking or speeding up) should be continuous and not discrete.
@@ -60,79 +60,124 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # System requirements
 
+The system is a pipeline of six stages. Only the reader + router is learned; everything else is fixed code. Each stage has one job, and any stage can refuse, with a reason that travels to the output.
 
-## Architecture
+## Pipeline
 
-Input >>
-    Checker (# of characters, english)
-    Model input transformer (Identify inputs and units, identify requested output, refuse based on inputs or outputs or irrelevant query etc.)
-    Unit converter
-    Planner
-    Output formatter
+```
+Question (≤160 chars)
+  │
+  ▼
+1. Checker ──────────── too long, not English ───────────────────────────► Refusal
+  │
+  ▼
+2. Reader + router: TinyLLM (learned)
+  ├─ target head:    speed | time | distance | acceleration | force | refuse ──► Refusal
+  ├─ slot tagger:    value + unit for u, v, a, t, s, m, F, with their spans
+  └─ implied values: stop → v = 0, from rest → u = 0, cruising → a = 0,
+                     brake → a < 0, road surface → |a|, no mass → 2,000 kg
+  │
+  ▼
+3. Assembler ────────── two values for one quantity ─────────────────────► Refusal
+  │                     (stated values win over implied ones)
+  ▼
+4. Unit converter ───── unit not in the list ─────────────────────────────► Refusal
+  │                     value + unit → SI
+  ▼
+5. Planner: model/planner.py (fixed, differentiable)
+  ├─ conflict check ─ inputs contradict each other ──────────────────────► Refusal
+  └─ shortest chain of guarded rules ─ missing input, guard fails ───────► Refusal
+  │
+  ▼
+6. Output formatter: answer in display units, trace, assumptions made
+```
 
+Training signals:
+- Target head: cross-entropy on the labelled target.
+- Slot tagger and implied values: supervised on their labels, and also by the answer loss on log|answer|, which flows back through the planner's steps to the values they used.
 
-## Input
-- Do not accept inputs in textbox beyond 160 characters
-- Extract known quantities along with their units and labels or if no inputs are given
-- Whether the input contains acceleration or deceleration and apply +/- sign accordingly
-- Identify the requested output or if no output is requested
+## Why both a router and a planner
+Each does the half of the job the other can't.
+- **Why a router:** turning free text into structure needs judgement. "Doing 70 in the rain" means u = 70 mph and a wet road; "how hard do I need to brake" asks for acceleration; "what's the 0–60 time of a Golf" is off topic despite the numbers. Rules break on this kind of variety, so it is learned.
+- **Why a planner:** once the question is structured, the answer is fixed by physics. Learning it would make answers approximate, need data for every combination of inputs and targets, and give no reason when something can't be computed. The planner is exact, needs no data, finds a chain for any combination the equations allow, and explains its refusals.
+- **How they fit together:**
+  - **Division of labour:** the router decides *what is asked and what is known*; the planner decides *how to get from one to the other*. The router never picks a formula, and the planner never reads text.
+  - **Refusals split by who can judge them:** the router refuses on meaning (off topic, ambiguous, two questions), the planner on maths (missing input, contradiction, impossible motion), each with its own reason.
+  - **The planner trains the router:** it is differentiable, so the answer loss flows back through the planned steps to the values the router read. A misread speed shows up as a wrong answer, and the gradient points at the speed.
+  - **Growth goes to the planner:** a new equation (friction, power) is one rule, and every combination it allows works without new routes. The router only needs new data when there is a new kind of quantity to read or a new target to name.
+  - **One trace from both:** the router's part (what it read, what it assumed, how sure it was) and the planner's part (each step with its numbers) together make the trace the user sees.
 
-## Routing
-- Very ambiguous questions to be routed to refusal
-- Duplicate inputs lead to refusal
-- Redundant/Extra inputs are handled by planning engine
-- Route non english input characters to refusal
-- Multiple questions to be routed to refusal
-- Missing required inputs should lead to refusal
-- No output requested should lead to refusal
-- Routing should be probabilistic and part of learning process
-- Possible routes:
-    - Calculate speed
-    - Calculate time
-    - Calculate distance
-    - Calculate acceleration
-    - Calculate Force
-    - Refusal
+## 1. Checker
+- The text box accepts at most 160 characters; longer input is refused before the model runs.
+- Input with non-English characters is refused.
 
-## Compute Planning
-- A separate planning engine plans steps required to get to output from given inputs
-- Handles redundant/extra inputs
-- Identifies uncomputable scenarios and returns helpful message e.g. missing input
+## 2. Reader + router (learned)
+Gives the rest of the system three things; anything else is the planner's job.
+- **Target:** probabilities over speed, time, distance, acceleration, force and refuse. Probabilistic and learned, but trained on the target label (cross-entropy), not through the answer: answers for different targets have different units and can't be blended, so the answer loss can't say which target was right. At inference the most likely target is used, and its probability is shown as confidence.
+- **Refusals on meaning** (the refuse class): off topic, very ambiguous, more than one question, no question asked.
+- **Stated values:** for each number in the question, which quantity it is (u, v, a, t, s, m, F) and its unit, with character spans for the trace. Whether the number is an acceleration or a deceleration sets the sign of a (negative when braking).
+- **Implied values,** as numbers the planner can use, each reported as an assumption in the trace:
 
-## Unit conversion
-- For identified unit in input check if unit in a list that converter can handle, then convert quantities to SI units
+  | Not stated | Value used |
+  |---|---|
+  | Starting speed, with "from rest", "stationary" etc. | u = 0 |
+  | Final speed, when the question is about stopping | v = 0 |
+  | Acceleration, at constant speed ("cruising", "steady") | a = 0 |
+  | Acceleration, braking with a road surface given | learned value for that surface |
+  | Acceleration, braking with no surface given | learned value for a dry road |
+  | Mass | 2,000 kg, unless stated |
+  | Anything else (speed when not from rest, distance or time) | nothing: the planner refuses with what's missing |
 
-## Assumptions
-- When to assume and when to refuse. User requirements assumes some missing inputs and refuses on
-     others, the following rules should guide the training data in learning assumptions and refusals:
+- **Not its job:** choosing a formula, labelling the motion type (it survives only as implied values and the sign of a), or refusing for missing inputs or contradictions.
 
-  | Missing input                           | Behaviour                                       |
-  |-----------------------------------------|-------------------------------------------------|
-  | Speed (when not "from rest")            | Refuse                                          |
-  | Speed "from rest (or stationary etc.)"  | 0                                               |
-  | Acceleration, with a road surface given | Use the surface learnt value                    |
-  | Acceleration, with no surface given     | Assume a dry road and use learnt value          |
-  | Distance or time the route needs        | Refuse                                          |
-  | Vehicle mass                            | Assume 2000kg unless specified exactly          |
+## 3. Assembler
+- Combines stated and implied values into one value per quantity. A stated value replaces an implied one.
+- Two stated values for the same quantity ("stationary at 20 m/s") are refused: the planner only ever sees one value per quantity, so it can't catch this.
 
+## 4. Unit converter
+- Converts each value + unit to SI with fixed factors; conversion is never learned.
+- A unit not in the list is refused. The list isn't fixed yet; the data generator currently uses m/s, mps, km/h, kph, mph (speed); m/s², g (acceleration); s, seconds, min, minutes, hours (time); m, metres, ft, km, miles (distance); kg, tonnes (mass); N, kN (force).
 
-## Equations
-- Calculate speed: v = u + a * t
-- Calculate acceleration: a = F/m or a = (v-u)/t or a = (v^2 - u^2)/(2 * s) or a = 2 * (s - u * t)/t^2
-- Calculate distance: s = u * t + 1/2 * a * t^2 or s = (v^2 - u^2)/(2 * a)
-- Calculate force: F = m * a
-- Calculate time: t = (v-u)/a or t = 2 * s/(u + v) or t = (-u + sqrt(u^2 + 2 * a * s))/a (equivalently t = 2 * s/(u + sqrt(u^2 + 2 * a * s)), which also covers a = 0 → t = s/u)
-- Added so that any three of u, v, a, t, s give the rest: v = sqrt(u^2 + 2 * a * s), v = 2 * s/t - u, s = (u + v)/2 * t
-- Implemented in `model/planner.py`: a breadth-first search finds the shortest chain of rules from the known quantities to the target, in a fixed rule order so the same question always gets the same plan
-- Guards: each rule checks its inputs before it runs (t, s and m positive; a ≠ 0 or u + v ≠ 0 where they divide; u² + 2as ≥ 0, i.e. the car doesn't stop before covering s; a braking car doesn't run past the moment it stops), and every result is checked (t > 0, s ≥ 0, v ≥ 0). A guarded rule is skipped so another can still reach the target; if none can, the guard reasons, or the missing inputs, become the refusal reason
-- Tolerances: zero and sign checks treat |x| < 0.001 (SI) as zero, since values read by a trained model are rarely exactly 0. Stopping within 5% of the distance or time asked about counts as reaching it (at v = 0), since stated values are rounded
-- Extra inputs are checked, not ignored: before planning, everything the inputs determine is derived and every rule that can recompute a value from the others is compared with it. A gap of more than 5% (or 0.05 in SI near zero) is refused as a conflict naming the value and the rule, e.g. "v is given as 26.82, but v = u + a·t gives 12". A conflict within a single quantity ("stationary at 20 m/s", two speeds for u) can't be seen by the planner; it has to be caught when values are read
+## 5. Planner
+Implemented in `model/planner.py`.
+- **Takes:** a target name and a dict of known values in SI, keyed u, v, a, t, s, m, F, with a signed and implied values already filled in. Values can be floats or torch tensors, so gradients flow through a plan.
+- **Returns:** the steps applied (each a rule with its formula text) and every value computed, or a refusal reason.
+- **Rules:** each equation solved for each unknown:
+  - speed: v = u + a·t, v = √(u² + 2as), v = 2s/t − u
+  - acceleration: a = F/m, a = (v − u)/t, a = (v² − u²)/2s, a = 2(s − u·t)/t²
+  - distance: s = u·t + a·t²/2, s = (v² − u²)/2a, s = (u + v)/2 · t
+  - time: t = (v − u)/a, t = 2s/(u + v), t = 2s/(u + √(u² + 2as)) (which also covers a = 0: t = s/u)
+  - force: F = m·a
 
-## Output
-- There are no implausible outputs as this is a proof of concept
-- Format output to be user friendly
-    - Time output in seconds and if output > 3600 use hours
-    - Distance output in m if output > 2000 use km
-    - Speed output in km/h always
-    - Acceleration output in m/s
-    - Force output in N
+  The three in v = √(u² + 2as), v = 2s/t − u and s = (u + v)/2 · t were added so that any three of u, v, a, t, s give the other two.
+- **Search:** breadth-first, so the plan is the shortest chain of rules from the known values to the target; rules are tried in a fixed order, so the same question always gets the same plan.
+- **Extra inputs are checked, not ignored:** before planning, everything the inputs determine is derived, and every rule that can recompute a value from the others is compared with it. A gap of more than 5% (or 0.05 in SI near zero) is refused as a conflict naming the value and the rule, e.g. "v is given as 26.82, but v = u + a·t gives 12".
+- **Guards:** each rule checks its inputs before it runs: t, s and m positive; a ≠ 0 and u + v ≠ 0 where they divide; the car doesn't stop before covering s (u² + 2as ≥ 0); a braking car doesn't run past the moment it stops. Every result is checked: t > 0, s ≥ 0, v ≥ 0. A guarded rule is skipped so another can still reach the target; if none can, the guard's reason is the refusal.
+- **Tolerances:** |x| < 0.001 (SI) counts as zero, since values read by a trained model are rarely exactly 0. Stopping within 5% of the distance or time asked about counts as reaching it (at v = 0), since stated values are rounded.
+- **Missing inputs** are named as inputs the user could add, not intermediate results, e.g. "{a} or {s, u} or {t, u}".
+- **Not its job:** reading text, converting units, filling in defaults, or judging whether a question is on topic.
+
+## 6. Output formatter
+- **Answer** in display units, as part of the final equation (e.g. "98 m"):
+
+  | Quantity | Unit |
+  |---|---|
+  | Time | s; hours above 3,600 s |
+  | Distance | m; km above 2,000 m |
+  | Speed | km/h always |
+  | Acceleration | m/s² |
+  | Force | N |
+
+- **No plausibility check:** any answer the planner produces is shown, as this is a proof of concept.
+- **Trace:** answer in SI, target and its probability, values read with their units, assumptions made, and each planned step with its numbers.
+- **Refusal:** the fixed message from User requirements → Output, plus the specific reason from the stage that refused.
+
+## Refusals at a glance
+
+| Reason | Stage |
+|---|---|
+| Longer than 160 characters; not English | 1. Checker |
+| Off topic, very ambiguous, more than one question, no question asked | 2. Reader + router |
+| Two values for one quantity | 3. Assembler |
+| Unit not in the list | 4. Unit converter |
+| Inputs contradict each other; missing input; impossible motion (guard) | 5. Planner |
