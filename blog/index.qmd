@@ -31,7 +31,7 @@ ASSETS.mkdir(exist_ok=True)
 
 ## A TinyLLM Router and a Fixed Physics Engine in One Graph
 
-A car does 30 m/s on a wet road and the driver reacts in 1.5 s. How far does it travel before stopping? An LLM answers from what it has seen; a calculator answers from the equations. The two don't always agree.
+A car does 30 m/s on a wet road and brakes hard. How far does it travel before stopping? An LLM answers from what it has seen; a calculator answers from the equations. The two don't always agree.
 
 The usual fix is a tool call: the model writes the sum and Python does it. [Qwenputer](https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer) takes the other route and puts a CPU inside the weights of Qwen3.5-4B. This post tries the same idea at a much smaller scale. Newton net is a tiny language model (about 0.25–0.5M parameters) that reads a short driving question, picks one of the equations of motion, and runs that equation in a fixed physics engine inside its own forward pass. The engine's maths is exact and frozen; the language model is trained through it, so a wrong route or a misread variable from input text costs a wrong answer. It is tested on 800 held-out questions for route accuracy, answer error and how often it correctly refuses questions it can't answer.
 
@@ -49,7 +49,7 @@ Everything is open:
 
 ## The data
 
-<!-- TODO: synthetic scenarios over braking, accelerating and constant speed (speed 5–35 m/s, mass 900–2,200 kg, deceleration 1–9 m/s², reaction time 0.5–2.5 s, dry/wet/icy) and 20–50 question templates plus paraphrases, ≤160 characters. Show one question and its answer before the totals. -->
+<!-- TODO: synthetic scenarios over braking, accelerating and constant speed (speed 5–35 m/s, mass 900–2,200 kg, deceleration 1–9 m/s², dry/wet/icy) and 20–50 question templates plus paraphrases, ≤160 characters. Show one question and its answer before the totals. -->
 
 ## Five routes
 
@@ -61,7 +61,7 @@ Everything is open:
 
 ## The engine inside the network
 
-<!-- TODO: one equation, e.g. stopping distance d = v·t_r + v²/2a. A 2–6 line snippet showing physics called inside forward(). Units go through a fixed converter, never learned. -->
+<!-- TODO: one equation, e.g. stopping distance d = v²/2a. A 2–6 line snippet showing physics called inside forward(). Units go through a fixed converter, never learned. -->
 
 ## Training through the engine
 
