@@ -8,6 +8,8 @@ dependencies = [
     "jupyter>=1.1.1",
     "numpy>=2.5.4",
     "pandas>=3.1.0",
+    "pint>=0.26.2",
     "pyyaml>=6.0.3",
+    "quantulum3>=0.10.0",
     "torch>=2.15.0",
 ]

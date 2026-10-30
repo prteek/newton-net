@@ -1,33 +1,23 @@
-"""Synthetic Newton net examples, labelled by the system requirements in decisions.md.
+"""Synthetic Newton net questions with their answers: the only labels the model trains on.
 
 Run from the repo root: `uv run python -m dataset.generate --n 100 --out data/sample_100.jsonl`
-
-Each question is labelled for the reader + router (target, stated values, implied values) and with
-what the whole pipeline should do with it: answer, or refuse at the stage that can judge it. Answers
-come from the planner (model/planner.py), so the data and the model share one source of physics.
 
 Each line of the output is one JSON record:
 
 - text: the question, at most 160 characters
-- case: answer, or the refusal it should get: off_topic | ambiguous | multiple_questions | no_question
-  (reader + router), duplicate (assembler), unknown_unit (unit converter), missing_input | conflict |
-  impossible (planner)
-- level: for answers, how the question is phrased: explicit | informal | implicit_unit | implied_value
-- target, target_id: one of TARGETS; "refuse" only for the reader + router's own refusals. Questions the
-  assembler, converter or planner refuse still carry the quantity they ask for
-- motion: braking | accelerating | constant | null (metadata; the model only sees it through
-  implied values and a_sign)
-- surface: dry | wet | icy | null
-- mentions: each value written in the text, in order: {quantity, value, unit, si, value_span,
-  unit_span}. quantity is one of QUANTITIES; spans are [start, end) character offsets; si is null when
-  the unit isn't one the converter knows. Accelerations and forces are written as magnitudes
-- implied: {u, v, a, m}: values the question implies but doesn't state, or null. a is signed
-- a_sign: -1 when braking, +1 when accelerating, null otherwise; applied to a stated a and F
-- known_si: what the planner is given (stated values in SI, signed, plus implied values for
-  quantities not stated); null when an earlier stage refuses
-- outcome: answer | refuse; refused_by: reader | assembler | converter | planner | null; reason
-- answer, answer_unit: the planner's answer in SI; null when refused
-- plan: the planner's steps with their numbers; assumptions: implied values the plan used
+- answer: the answer in SI (signed: negative acceleration or force when braking), or null when the
+  question should be refused
+- unit: the SI unit of the quantity asked for (m/s, s, m, m/s2, N), which names the target; null when
+  the question isn't one the system answers at all (off topic, ambiguous, two questions, no question)
+- case: why a question is answered or refused, for evaluation only: answer | off_topic | ambiguous |
+  multiple_questions | no_question | bad_unit | duplicate | missing_input | conflict | impossible
+
+Training uses text, answer and unit only. Which number is which quantity, the sign and any implied
+values are not labelled: the model learns them by finding the reading the planner turns into the
+answer (model/reading.py). Internally each question is built from a full scenario so the answer is
+exact, and every record is checked against the real extractor, readings and planner: an answered
+question must have a reading that reproduces its answer, and a refused one must be refused at the
+right stage.
 """
 
 import argparse
@@ -37,11 +27,14 @@ import random
 import re
 from pathlib import Path
 
+from model.extract import extract
 from model.planner import solve, trace
+from model.reading import readings
 
 TARGETS = ["speed", "time", "distance", "acceleration", "force", "refuse"]
 TARGET_SYMBOL = {"speed": "v", "time": "t", "distance": "s", "acceleration": "a", "force": "F"}
 TARGET_UNIT = {"speed": "m/s", "time": "s", "distance": "m", "acceleration": "m/s2", "force": "N"}
+DIMENSION = {"u": "speed", "v": "speed", "a": "acceleration", "t": "time", "s": "distance", "m": "mass", "F": "force"}
 QUANTITIES = ["u", "v", "a", "t", "s", "m", "F"]
 IMPLIED = ["u", "v", "a", "m"]
 MOTIONS = ["braking", "accelerating", "constant"]
@@ -50,33 +43,30 @@ DEFAULT_MASS = 2000.0
 MAX_CHARS = 160
 
 # unit as written in text -> (factor to SI, decimals when written)
-SPEED = {"m/s": (1.0, 0), "mps": (1.0, 0), "km/h": (1 / 3.6, 0), "kph": (1 / 3.6, 0), "mph": (0.44704, 0)}
+SPEED = {"m/s": (1.0, 0), "mps": (1.0, 0), "km/h": (1 / 3.6, 0), "kph": (1 / 3.6, 0), "mph": (0.44704, 0),
+         "knots": (0.514444, 0)}
 UNITS = {
     "u": SPEED,
     "v": SPEED,
     "a": {"m/s2": (1.0, 1), "m/s²": (1.0, 1), "g": (9.80665, 2)},
     "t": {"s": (1.0, 0), "seconds": (1.0, 0), "min": (60.0, 0), "minutes": (60.0, 0), "hours": (3600.0, 1)},
-    "s": {"m": (1.0, 0), "metres": (1.0, 0), "ft": (0.3048, 0), "km": (1000.0, 1), "miles": (1609.344, 1)},
+    "s": {"m": (1.0, 0), "metres": (1.0, 0), "ft": (0.3048, 0), "yards": (0.9144, 0), "km": (1000.0, 1),
+          "miles": (1609.344, 1)},
     "m": {"kg": (1.0, 0), "tonnes": (1000.0, 1)},
     "F": {"N": (1.0, 0), "kN": (1000.0, 1)},
-}
-# units the converter doesn't know, for unknown_unit questions; factors only to write sensible values
-UNKNOWN_UNITS = {
-    "u": {"knots": (0.514444, 0), "ft/s": (0.3048, 0)},
-    "s": {"yards": (0.9144, 0), "furlongs": (201.168, 1)},
-    "a": {"ft/s²": (0.3048, 0)},
 }
 # units that read sensibly for a value of this size in SI: (quantity, upper bound) -> allowed units
 SCALE = {
     ("t", 120): ["s", "seconds"],
     ("t", math.inf): ["min", "minutes", "hours"],
-    ("s", 1500): ["m", "metres", "ft"],
+    ("s", 1500): ["m", "metres", "ft", "yards"],
     ("s", math.inf): ["km", "miles"],
 }
 
-# Placeholders: {u} … {F} write a value with a known unit; {u2} is a second, different value for u;
-# {u_x}, {s_x}, {a_x} use a unit the converter doesn't know. {surface} is a road description and
-# {rest} implies u = 0. The flag "stop" marks questions about coming to a stop, which imply v = 0.
+# Placeholders: {u} … {F} write a value with its unit; {t2}, {a2}, {m2} are a second, different value
+# of the same quantity. {surface} is a road description and {rest} implies u = 0. {hp}, {deg} and
+# {bare} write values the extractor can't use: horsepower, a slope in degrees, a speed with no unit.
+# The flag "stop" marks questions about coming to a stop, which imply v = 0.
 
 ANSWERABLE = [  # (target, motion, level, template, flags)
     # braking
@@ -165,14 +155,14 @@ READER_REFUSALS = {
 
 # Refused by a later stage: (case, target, motion, template, flags, how to make it fail)
 STAGE_REFUSALS = [
-    # assembler: two stated values for one quantity
-    ("duplicate", "distance", "braking", "I'm doing {u} or maybe {u2}. How far to stop at {a}?", {"stop"}, None),
-    ("duplicate", "time", "braking", "From {u}, no wait {u2}, how long to stop {surface}?", {"stop"}, None),
-    ("duplicate", "distance", "constant", "Cruising at {u}, then {u2}, for {t}. How far do I go?", set(), None),
-    # unit converter: a unit it doesn't know
-    ("unknown_unit", "distance", "braking", "A car at {u_x} brakes at {a}. How far does it take to stop?", {"stop"}, None),
-    ("unknown_unit", "time", "constant", "How long to cover {s_x} cruising at {u}?", set(), None),
-    ("unknown_unit", "speed", "accelerating", "Accelerating {rest} at {a_x} for {t}, how fast am I going?", set(), None),
+    # extractor: a value it can't use
+    ("bad_unit", "distance", "accelerating", "A {hp} car pulls away {rest} at {a}. How far has it gone after {t}?", set(), None),
+    ("bad_unit", "distance", "braking", "How far to stop from {u} at {a} on a {deg} slope?", {"stop"}, None),
+    ("bad_unit", "distance", "braking", "doing {bare} {surface}, how far to stop?", {"stop"}, None),
+    # assembler: two values for one quantity (two speeds are a start and a final speed, not a duplicate)
+    ("duplicate", "distance", "constant", "Cruising at {u} for {t}, or maybe {t2}. How far do I go?", set(), None),
+    ("duplicate", "distance", "braking", "A car at {u} brakes at {a}, or perhaps {a2}. How far does it take to stop?", {"stop"}, None),
+    ("duplicate", "force", "accelerating", "A {m} or {m2} car accelerates at {a}. What net force does it need?", set(), None),
     # planner: an input is missing
     ("missing_input", "distance", "braking", "How far will I travel before stopping {surface}?", {"stop"}, None),
     ("missing_input", "distance", "constant", "How far do I get if I cruise for {t}?", set(), None),
@@ -198,8 +188,8 @@ REST_PHRASES = ["from rest", "from a standstill", "from stationary"]
 
 # share of each case in a generated set
 MIX = {"answer": 0.60, "off_topic": 0.10, "ambiguous": 0.04, "multiple_questions": 0.04, "no_question": 0.04,
-       "missing_input": 0.06, "conflict": 0.04, "impossible": 0.04, "duplicate": 0.02, "unknown_unit": 0.02}
-EXPECTED_STAGE = {"duplicate": "assembler", "unknown_unit": "converter",
+       "missing_input": 0.06, "conflict": 0.04, "impossible": 0.04, "duplicate": 0.02, "bad_unit": 0.02}
+EXPECTED_STAGE = {"bad_unit": "extractor", "duplicate": "assembler",
                   "missing_input": "planner", "conflict": "planner", "impossible": "planner"}
 
 
@@ -218,24 +208,27 @@ def sample_state(rng, motion, rest):
     return {"u": u, "t": t, "s": u * t, "v": u, "a": 0.0, "m": m, "F": 0.0}
 
 
-def as_written(rng, quantity, si, units=None):
-    """Write an SI value in a unit that suits its size, then convert back, so labels match the text."""
-    known = units is None
-    units = UNITS[quantity] if known else units
-    choices = next((u for (q, hi), u in SCALE.items() if known and q == quantity and si < hi), list(units))
+def as_written(rng, quantity, si):
+    """Write an SI value in a unit that suits its size, then convert back, so the answer matches the text."""
+    units = UNITS[quantity]
+    choices = next((u for (q, hi), u in SCALE.items() if q == quantity and si < hi), list(units))
     for _ in range(20):
         unit = rng.choice(choices)
         factor, decimals = units[unit]
         value = round(si / factor, decimals)
         if value > 0:
             value = int(value) if decimals == 0 else value
-            return {"quantity": quantity, "value": value, "unit": unit, "si": round(value * factor, 6) if known else None}
+            return {"quantity": quantity, "value": value, "unit": unit, "si": round(value * factor, 6)}
     raise ValueError(f"cannot write {si} for {quantity}")
 
 
 def quantity_of(placeholder):
-    """{u2} and {u_x} are both values of u."""
-    return placeholder.partition("_")[0].rstrip("2")
+    """{t2} is a second value of t."""
+    return placeholder.rstrip("2")
+
+
+UNUSABLE = {"hp": lambda rng: f"{rng.randint(90, 300)} hp", "deg": lambda rng: f"{rng.randint(2, 12)} degree",
+            "bare": lambda rng: str(rng.randint(20, 80))}
 
 
 def render(rng, template, state, surface_phrase, rest_phrase):
@@ -248,12 +241,12 @@ def render(rng, template, state, surface_phrase, rest_phrase):
             text += surface_phrase
         elif name == "rest":
             text += rest_phrase
+        elif name in UNUSABLE:
+            text += UNUSABLE[name](rng)
         else:
             quantity = quantity_of(name)
             if name.endswith("2"):
                 mention = as_written(rng, quantity, state[quantity] * rng.choice([0.6, 0.75, 1.3, 1.5]))
-            elif name.endswith("_x"):
-                mention = as_written(rng, quantity, state[quantity], UNKNOWN_UNITS[quantity])
             else:
                 mention = as_written(rng, quantity, state[quantity])
             value = f"{mention['value']:,}" if mention["unit"] == "kg" else str(mention["value"])
@@ -288,13 +281,12 @@ def implied_values(target, motion, template, flags, surface, stated):
 
 
 def assemble(mentions, implied, a_sign):
-    """Stages 3 and 4: one value per quantity, converted to SI. Returns (known, refused_by, reason)."""
+    """The scenario's own reading: one value per quantity, in SI. Returns (known, refused_by, reason)."""
     quantities = [m["quantity"] for m in mentions]
     if dupes := sorted({q for q in quantities if quantities.count(q) > 1}):
         return None, "assembler", f"two values given for {', '.join(dupes)}"
-    if unknown := [m["unit"] for m in mentions if m["si"] is None]:
-        return None, "converter", f"unit not recognised: {', '.join(unknown)}"
-    known = {m["quantity"]: m["si"] * (a_sign or 1) if m["quantity"] in ("a", "F") else m["si"] for m in mentions}
+    # a and F take their sign from a_sign; abs() so a value written with a minus isn't flipped twice
+    known = {m["quantity"]: abs(m["si"]) * (a_sign or 1) if m["quantity"] in ("a", "F") else m["si"] for m in mentions}
     known.update({q: v for q, v in implied.items() if v is not None and q not in known})
     return known, None, None
 
@@ -350,7 +342,7 @@ def make_question(rng, case, target, motion, template, flags, level=None, fail=N
     rest = "rest" in names or "0 to {" in template
     surface = rng.choice(list(SURFACE_DECEL)) if "surface" in names else None
     surface_phrase = rng.choice(SURFACE_PHRASES[surface]) if surface else ""
-    stated = {quantity_of(n) for n in names if n not in ("surface", "rest")}
+    stated = {quantity_of(n) for n in names if n not in ("surface", "rest", *UNUSABLE)}
 
     for _ in range(300):
         state = sample_state(rng, motion or "accelerating", rest)  # reader refusals: every value non-zero
@@ -363,7 +355,10 @@ def make_question(rng, case, target, motion, template, flags, level=None, fail=N
             state["s"] = state["u"] ** 2 / (2 * state["a"]) * rng.uniform(1.3, 2.5)
         elif fail == "t_past_stop":
             state["t"] = state["u"] / state["a"] * rng.uniform(1.3, 2.5)
-        text, mentions = render(rng, template, state, surface_phrase, rng.choice(REST_PHRASES))
+        try:
+            text, mentions = render(rng, template, state, surface_phrase, rng.choice(REST_PHRASES))
+        except ValueError:  # a value too small to write in any of its units
+            continue
         if len(text) > MAX_CHARS:
             continue
 
@@ -372,13 +367,49 @@ def make_question(rng, case, target, motion, template, flags, level=None, fail=N
             return rec | {"refused_by": "reader", "reason": case}
 
         implied, a_sign = implied_values(target, motion, template, flags, surface, stated)
-        rec = through_pipeline(labelled(text, case, level or case, target, motion, surface, mentions, implied, a_sign))
+        rec = labelled(text, case, level or case, target, motion, surface, mentions, implied, a_sign)
+        if case == "bad_unit":
+            rec = rec | {"refused_by": "extractor", "reason": "unusable value"}
+        else:
+            rec = through_pipeline(rec)
         if case == "answer":
-            if rec["outcome"] == "answer" and sensible(target, rec["answer"], rec["known_si"]):
-                return rec
-        elif rec["refused_by"] == EXPECTED_STAGE[case] and (rec["refused_by"] != "planner" or planner_kind(rec["reason"]) == case):
+            ok = rec["outcome"] == "answer" and sensible(target, rec["answer"], rec["known_si"])
+        else:
+            ok = rec["refused_by"] == EXPECTED_STAGE[case] and (rec["refused_by"] != "planner" or planner_kind(rec["reason"]) == case)
+        if ok and learnable(rec):
             return rec
     raise RuntimeError(f"no valid {case} sample for: {template}")
+
+
+def learnable(rec):
+    """Check a question against the real extractor, readings and planner, as the model will see it.
+
+    An answered question needs a reading that reproduces its answer (trying each road surface's |a|
+    for the learned value); a refused one must be refused by the extractor or assembler when that's
+    where it should stop, or have a reading the planner refuses.
+    """
+    quantities = extract(rec["text"])
+    read = [q["dimension"] for q in quantities if not q["problem"] and q["si"] != 0]  # "0 to 60 mph" adds a 0
+    if read != [DIMENSION[m["quantity"]] for m in rec["mentions"]]:
+        return False  # the extractor misread a value
+    symbol = TARGET_SYMBOL[rec["target"]]
+    for a_learned in SURFACE_DECEL.values():
+        options, refusal = readings(quantities, symbol, a_learned)
+        if refusal:
+            return rec["refused_by"] == refusal[0]
+        for _, known in options:
+            steps, values, _ = solve(known, symbol)
+            if rec["answer"] is None and steps is None:
+                return True
+            if rec["answer"] is not None and steps is not None and math.isclose(values[symbol], rec["answer"], rel_tol=1e-3, abs_tol=1e-6):
+                return True
+    return False
+
+
+def simple(rec):
+    """What the model trains on: the question, its answer and the unit of the quantity asked for."""
+    unit = TARGET_UNIT.get(rec["target"])
+    return {"text": rec["text"], "answer": rec["answer"], "unit": unit, "case": rec["case"]}
 
 
 def generate(n, seed=0):
@@ -398,7 +429,7 @@ def generate(n, seed=0):
             target, motion, template, flags, fail = options[i % len(options)]
             records.append(make_question(rng, case, target, motion, template, flags, fail=fail))
     rng.shuffle(records)
-    return [{"id": i, **r} for i, r in enumerate(records)]
+    return [{"id": i, **simple(r)} for i, r in enumerate(records)]
 
 
 if __name__ == "__main__":

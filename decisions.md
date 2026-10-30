@@ -7,7 +7,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # Scope
 
-- Routes name the quantity asked for, not a formula: speed, time, distance, acceleration, force, or refusal (see System requirements → 2. Reader + router). The planner chooses the formulas. Without a refusal route the model would make up answers for off-topic questions.
+- Routes name the quantity asked for, not a formula: speed, time, distance, acceleration, force, or refusal (see System requirements → 3. Reader + router). The planner chooses the formulas. Without a refusal route the model would make up answers for off-topic questions.
 - Motion is not just braking: each question is one of three motion types, braking, accelerating or constant speed, and every route covers each type where it makes sense (e.g. distance to stop, distance to reach 60 mph from rest, distance covered in 20 minutes at 70 mph). Acceleration is signed in the engine: negative when braking.
 - Reaction time is out of scope: there is no reaction phase, so braking starts immediately and time is a single variable t. Questions that mention a reaction time are not generated.
 - Inputs are ≤160-character, Twitter-like questions.
@@ -16,9 +16,9 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # Architecture
 
-- Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the reading of values be learned from answers; the choice of target is learned from its label (see System requirements → 2. Reader + router).
+- Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the model learn how to read a question from its answer alone (see System requirements → 3. Reader + router).
 - TinyLLM: d_model 48, 1–2 layers, 48–64 tokens, 2k–8k vocab (~0.25–0.5M params).
-- The model extracts value + unit; a deterministic normaliser converts to SI. Unit conversion is never learned.
+- A fixed extractor (quantulum3 + pint) finds each value and unit and converts it to SI; the unit's dimension fixes which quantity a value can be. Extraction and unit conversion are never learned.
 - Acceleration magnitude (braking or speeding up) should be continuous and not discrete.
 - We will focus on different mean levels due to unknown/uncertain inputs but not care about uncertainty or propagating it in the first version
 - Action head (answer / refuse) we will either answer or reject a request even in cases of ambiguity
@@ -27,8 +27,9 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 - Train jointly, this is in contrast to training a claseeifier and modelling physics separately and gluing them together
 - Joint training lets improvement of both parts together and allows the parser (TinyLLM) to learn friction variation from words like "wet road" when not explicitly given among other things
-- Start with full supervision (route, slots, units, action, target); answer-only supervision risks shortcuts
-- The answer loss is on log|answer| (e.g. MSE between log|engine output| and log|target|), not raw SI. Answers span 1 m/s² to 86 km once constant-speed journeys are in, so a raw-SI loss would be dominated by long journeys; the log makes errors relative (0.1 in log ≈ 10% off) at every scale. The engine still outputs SI; only the loss is logged. Sign is not part of the log: it follows from the motion type (negative acceleration when braking).
+- Training data is only the question, its answer and the answer's unit (null for questions the system shouldn't answer at all). Nothing else is labelled: not the target, which number is which quantity, the sign or implied values. Keeps data simple, and lets paraphrased or real question–answer pairs be used as they are.
+- The target comes from the answer's unit (m → distance, m/s → speed, …; no unit → refuse) and is trained by cross-entropy. Everything else the reader + router decides is learned by matching the answer through the planner (see System requirements → Training).
+- The answer loss is on log|answer| (e.g. MSE between log|engine output| and log|target|), not raw SI. Answers span 1 m/s² to 86 km once constant-speed journeys are in, so a raw-SI loss would be dominated by long journeys; the log makes errors relative (0.1 in log ≈ 10% off) at every scale. The engine still outputs SI; only the loss is logged. The sign is compared separately: a braking acceleration or force is negative.
 
 # Deployment
 
@@ -71,18 +72,22 @@ Question (≤160 chars)
 1. Checker ──────────── too long, not English ───────────────────────────► Refusal
   │
   ▼
-2. Reader + router: TinyLLM (learned)
-  ├─ target head:    speed | time | distance | acceleration | force | refuse ──► Refusal
-  ├─ slot tagger:    value + unit for u, v, a, t, s, m, F, with their spans
-  └─ implied values: stop → v = 0, from rest → u = 0, cruising → a = 0,
-                     brake → a < 0, road surface → |a|, no mass → 2,000 kg
+2. Extractor: model/extract.py (fixed: quantulum3 + pint)
+  │                     each number + unit → dimension and SI value
+  ├──────────────────── number without a unit, unit of another dimension ─► Refusal
+  ▼
+3. Reader + router: TinyLLM (learned)
+  ├─ target head:  speed | time | distance | acceleration | force | refuse ──► Refusal
+  ├─ order head:   which speed is the start (u) and which the final speed (v)
+  ├─ sign head:    braking (−) | accelerating (+)
+  └─ implied:      from rest → u = 0, stop → v = 0,
+                   no a stated → none | 0 (cruising) | road surface → |a| (learned value)
   │
   ▼
-3. Assembler ────────── two values for one quantity ─────────────────────► Refusal
-  │                     (stated values win over implied ones)
-  ▼
-4. Unit converter ───── unit not in the list ─────────────────────────────► Refusal
-  │                     value + unit → SI
+4. Assembler: model/reading.py (fixed)
+  │                     one value per dimension (up to two speeds); a and F → sign × |value|;
+  │                     implied values fill gaps; mass 2,000 kg unless stated
+  ├──────────────────── two values of one dimension, three speeds ────────► Refusal
   ▼
 5. Planner: model/planner.py (fixed, differentiable)
   ├─ conflict check ─ inputs contradict each other ──────────────────────► Refusal
@@ -92,9 +97,13 @@ Question (≤160 chars)
 6. Output formatter: answer in display units, trace, assumptions made
 ```
 
-Training signals:
-- Target head: cross-entropy on the labelled target.
-- Slot tagger and implied values: supervised on their labels, and also by the answer loss on log|answer|, which flows back through the planner's steps to the values they used.
+## Training
+Training data is only (question, answer, unit); see `dataset/generate.py`.
+- **Target head:** cross-entropy on the target named by the answer's unit (no unit → refuse).
+- **Order, sign and implied heads:** by matching the answer. Together their choices make a *reading*: one complete set of known values. A question has at most 48 readings (2 speed orders × 2 signs × u = 0 or not × v = 0 or not × 3 ways to fill a), usually under 16 (8.7 on average). The planner runs on each; a reading *matches* if it reproduces the labelled answer (within 5% on log|answer|, same sign), or refuses when the label has no answer. The loss raises the probability of the matching readings: −log Σ P(reading) · match(reading), where P(reading) is the product of the heads' probabilities.
+- **Road-surface |a|:** a continuous value, trained by the answer loss through the planner's arithmetic.
+- **What the answer can't tell apart:** in 39% of generated questions more than one reading matches. Mostly time symmetry: braking from 124 km/h to a stop covers the same distance and takes the same time as accelerating from rest to 124 km/h, so for distance and time questions the answer can't say which. The answer is right either way, but the trace can show the mirror reading. Signed answers (acceleration, force) do tell them apart and teach the shared encoder what "brake" means.
+- **Refused questions:** off-topic and other reader refusals train only the target head (refuse); questions refused later (missing input, contradiction, impossible motion) train the target head on their unit and push the readings towards ones the planner refuses.
 
 ## Why both a router and a planner
 Each does the half of the job the other can't.
@@ -103,41 +112,46 @@ Each does the half of the job the other can't.
 - **How they fit together:**
   - **Division of labour:** the router decides *what is asked and what is known*; the planner decides *how to get from one to the other*. The router never picks a formula, and the planner never reads text.
   - **Refusals split by who can judge them:** the router refuses on meaning (off topic, ambiguous, two questions), the planner on maths (missing input, contradiction, impossible motion), each with its own reason.
-  - **The planner trains the router:** it is differentiable, so the answer loss flows back through the planned steps to the values the router read. A misread speed shows up as a wrong answer, and the gradient points at the speed.
+  - **The planner trains the router:** the router's choices are scored by whether the planner turns them into the right answer, and the road-surface |a| is trained through the planner's arithmetic. A misread speed order or sign shows up as a wrong answer or a refusal, and the loss moves probability away from it.
   - **Growth goes to the planner:** a new equation (friction, power) is one rule, and every combination it allows works without new routes. The router only needs new data when there is a new kind of quantity to read or a new target to name.
-  - **One trace from both:** the router's part (what it read, what it assumed, how sure it was) and the planner's part (each step with its numbers) together make the trace the user sees.
+  - **One trace from both:** the extractor's values, the router's choices (which speed is which, the sign, what it assumed, how sure it was) and the planner's steps together make the trace the user sees.
 
 ## 1. Checker
 - The text box accepts at most 160 characters; longer input is refused before the model runs.
 - Input with non-English characters is refused.
 
-## 2. Reader + router (learned)
-Gives the rest of the system three things; anything else is the planner's job.
-- **Target:** probabilities over speed, time, distance, acceleration, force and refuse. Probabilistic and learned, but trained on the target label (cross-entropy), not through the answer: answers for different targets have different units and can't be blended, so the answer loss can't say which target was right. At inference the most likely target is used, and its probability is shown as confidence.
-- **Refusals on meaning** (the refuse class): off topic, very ambiguous, more than one question, no question asked.
-- **Stated values:** for each number in the question, which quantity it is (u, v, a, t, s, m, F) and its unit, with character spans for the trace. Whether the number is an acceleration or a deceleration sets the sign of a (negative when braking).
-- **Implied values,** as numbers the planner can use, each reported as an assumption in the trace:
+## 2. Extractor
+Implemented in `model/extract.py`; nothing is learned.
+- quantulum3 finds each number + unit (including number words such as "seventy"); pint converts it to SI and gives its dimension: speed, acceleration, time, distance, mass or force. Any unit pint knows is accepted, so knots, ft/s or yards need no list.
+- **Fixes for quantulum3:** "g" after a number is acceleration (standard gravity), not grams; "seconds" and "minutes" are times, not angles; "to" or a dash between two values ("15 m/s to 45 mph", "0–60 mph") is split into both values, with a bare first number taking the second's unit; a unit that swallowed the next word ("27 km/h at" read as per ampere-turn) is parsed again without it.
+- **Refuses:** a number with no unit ("doing 70 in the rain") and a unit of a dimension the physics doesn't cover ("150 hp", "a 5 degree slope").
+- **Not its job:** deciding which speed is the start or final speed, or the sign. The dimension fixes everything else: a time can only be t, a distance only s, a mass only m, a force only F.
 
-  | Not stated | Value used |
+## 3. Reader + router (learned)
+Decides only what the extractor leaves open; anything else is the planner's job.
+- **Target:** probabilities over speed, time, distance, acceleration, force and refuse; trained on the target the answer's unit names. At inference the most likely target is used, and its probability is shown as confidence.
+- **Refusals on meaning** (the refuse class): off topic, very ambiguous, more than one question, no question asked.
+- **Order:** for two speeds, which is the start (u) and which the final speed (v); for one speed, which of the two it is.
+- **Sign:** braking (−) or accelerating (+), one per question, applied to a stated a and F. Words such as "brakes", "decel", "stop within" point to braking; "accelerates", "floor it", "pulls away" to accelerating. When a or F is the target, the planner's physics gives its sign instead.
+- **Implied values,** each reported as an assumption in the trace:
+
+  | Not stated | Choice |
   |---|---|
   | Starting speed, with "from rest", "stationary" etc. | u = 0 |
   | Final speed, when the question is about stopping | v = 0 |
   | Acceleration, at constant speed ("cruising", "steady") | a = 0 |
-  | Acceleration, braking with a road surface given | learned value for that surface |
-  | Acceleration, braking with no surface given | learned value for a dry road |
-  | (both acceleration rows apply only when nothing else fixes a: not when a is what's asked, nor when the question says where the car must stop) | |
-  | Mass | 2,000 kg, unless stated |
+  | Acceleration, braking on a road surface (or none given) | sign × learned \|a\| for that surface |
   | Anything else (speed when not from rest, distance or time) | nothing: the planner refuses with what's missing |
 
-- **Not its job:** choosing a formula, labelling the motion type (it survives only as implied values and the sign of a), or refusing for missing inputs or contradictions.
+- **Trained by:** the target on its label; order, sign and implied values by matching the answer (see Training). None of them has its own label.
 
-## 3. Assembler
-- Combines stated and implied values into one value per quantity. A stated value replaces an implied one.
-- Two stated values for the same quantity ("stationary at 20 m/s") are refused: the planner only ever sees one value per quantity, so it can't catch this.
-
-## 4. Unit converter
-- Converts each value + unit to SI with fixed factors; conversion is never learned.
-- A unit not in the list is refused. The list isn't fixed yet; the data generator currently uses m/s, mps, km/h, kph, mph (speed); m/s², g (acceleration); s, seconds, min, minutes, hours (time); m, metres, ft, km, miles (distance); kg, tonnes (mass); N, kN (force).
+## 4. Assembler
+Implemented in `model/reading.py`, which also lists every reading for training.
+- Combines the extractor's values with the router's choices into one value per quantity, in SI.
+- Applies the sign to a stated a and F: sign × |value|, so a value written with a minus isn't flipped twice.
+- Mass is 2,000 kg unless stated (a fixed default, not learned).
+- An implied value never fills the quantity being asked for (no implied a when a is the target).
+- **Refuses:** two values of the same dimension ("for 14 minutes, or maybe 11 minutes"), or more than two speeds. Two speeds are not a duplicate: they are a start and a final speed.
 
 ## 5. Planner
 Implemented in `model/planner.py`.
@@ -178,7 +192,7 @@ Implemented in `model/planner.py`.
 | Reason | Stage |
 |---|---|
 | Longer than 160 characters; not English | 1. Checker |
-| Off topic, very ambiguous, more than one question, no question asked | 2. Reader + router |
-| Two values for one quantity | 3. Assembler |
-| Unit not in the list | 4. Unit converter |
+| Number without a unit; unit of a dimension the physics doesn't cover | 2. Extractor |
+| Off topic, very ambiguous, more than one question, no question asked | 3. Reader + router |
+| Two values of one dimension; more than two speeds | 4. Assembler |
 | Inputs contradict each other; missing input; impossible motion (guard) | 5. Planner |

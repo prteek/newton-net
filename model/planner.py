@@ -176,8 +176,9 @@ def missing(known, target, depth=2):
         options.add(frozenset(lacking))
         if depth > 1 and len(lacking) == 1:  # one intermediate short: say what would produce it
             (gap,) = lacking
-            for o in missing(reachable, gap, depth - 1).split(" or "):
-                options.add(frozenset(o.strip("{}").split(", ")) - {target})
+            for o in filter(None, missing(reachable, gap, depth - 1).split(" or ")):
+                if target not in (o := frozenset(o.strip("{}").split(", "))):  # skip circular routes
+                    options.add(o)
     options = {o for o in options if o and not any(p < o for p in options if p)}  # drop supersets
     options = sorted({tuple(sorted(o)) for o in options}, key=lambda o: (len(o), o))
     return " or ".join("{" + ", ".join(o) + "}" for o in options)
