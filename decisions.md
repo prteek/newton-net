@@ -32,3 +32,24 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 # Deployment
 
 - HF Inference Endpoint `intel-spr x2` (2 vCPU / 4 GB, $0.067/hr), 0–1 replicas, scale-to-zero, custom handler. No GPU.
+
+# User requirements
+
+## Input
+
+- They type one question of up to 160 characters (hard limit), in free text (english) with any/no units: "doing 70 mph in
+    the rain, how far to stop?"
+
+## Output
+
+- The answer with appropriate unit relevant for question (unit should be output as part of the equation itself) e.g. "≈ 113 m"
+- A generic refusal stating most common (hard coded) failure modes
+    I can only answer questions about physics of motion please check:
+    - The query is relevant to the topic
+    - Units are specified correctly e.g. speed (mph, kph, km/h etc)
+    - As much as possible known information is included in the question (e.g. include known speed or acceleration or distance if not already)
+- A trace, which is what makes this different from asking an LLM:
+     - Route i.e. equation used: "distance / acceleration / time".
+     - Optional:
+        - Assumptions: "wet road → deceleration 5.0 m/s²", "no reaction time given → 0 s"
+        - Confidence: how sure model was ? the route probabilities, e.g. "stopping distance 0.97".
