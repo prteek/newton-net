@@ -73,10 +73,11 @@ Question (≤160 chars)
   │
   ▼
 2. Extractor: model/extract.py (fixed: quantulum3 + pint)
-  │                     each number + unit → dimension and SI value
+  │                     each number + unit → dimension and SI value;
+  │                     the text with each value replaced by a marker: "at <speed1> brakes at <acceleration>"
   ├──────────────────── number without a unit, unit of another dimension ─► Refusal
   ▼
-3. Reader + router: TinyLLM (learned)
+3. Reader + router: TinyLLM (learned), reads the marked text
   ├─ target head:  speed | time | distance | acceleration | force | refuse ──► Refusal
   ├─ order head:   which speed is the start (u) and which the final speed (v)
   ├─ sign head:    braking (−) | accelerating (+); soft (2p − 1) in training
@@ -134,6 +135,18 @@ Implemented in `model/extract.py`; nothing is learned.
 - **Fixes for quantulum3:** "g" after a number is acceleration (standard gravity), not grams; "seconds" and "minutes" are times, not angles; "to" or a dash between two values ("15 m/s to 45 mph", "0–60 mph") is split into both values, with a bare first number taking the second's unit; a unit that swallowed the next word ("27 km/h at" read as per ampere-turn) is parsed again without it.
 - **Refuses:** a number with no unit ("doing 70 in the rain") and a unit of a dimension the physics doesn't cover ("150 hp", "a 5 degree slope").
 - **Not its job:** deciding which speed is the start or final speed, or the sign. The dimension fixes everything else: a time can only be t, a distance only s, a mass only m, a force only F.
+- **Marks the text for the encoder** (`mask`, in the first version): before tokenising, each value is replaced by a marker of its dimension, and the encoder never sees the numbers or units:
+
+  "A 1,336 kg car goes from 15 m/s to 45 mps in 7 s. What net force acts on it?"
+  → "A <mass> car goes from <speed1> to <speed2> in <time>. What net force acts on it?"
+
+  Speeds are numbered in order, because the order head reads the vectors at `<speed1>` and `<speed2>`; a value the extractor can't use becomes `<number>`. Rationale:
+  - **No double work.** The extractor has already read the number and unit exactly. Making the encoder read "1,336", "mps" or "0.69g" again only adds things for it to get wrong.
+  - **The encoder learns language, not numerals.** What it has to decide (what is asked, which speed is the start, braking or accelerating, what is implied) depends on the words around the values, not their digits. "From 15 m/s to 45 mps" and "from 30 mph to 70 mph" become the same input, so one example teaches both, and the model can't latch onto particular numbers or unit spellings in the generated data.
+  - **A smaller, closed vocabulary.** Numbers and unit spellings are open-ended (every value is a new token); a handful of markers replace them, which suits a 2k–8k vocabulary and a tiny model.
+  - **A place for the order head to look.** `<speed1>` and `<speed2>` are fixed positions whose vectors say how each speed is used ("from …", "reach …", "doing …").
+  - **The values stay exact.** They go from the extractor straight to the assembler and planner, never through the network, so masking costs no precision.
+  - **Cost:** the encoder can't use a value's size as a clue (e.g. that 0 in "0 to 60 mph" means from rest; the 0 still reaches the planner as a speed). Within the questions in scope, the words carry the meaning.
 
 ## 3. Reader + router (learned)
 Decides only what the extractor leaves open; anything else is the planner's job.

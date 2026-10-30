@@ -100,3 +100,23 @@ def extract(text):
         out.append({"surface": surface, "value": value, "unit": unit, "dimension": dimension, "si": si,
                     "span": span, "problem": None if dimension else f"unit not usable: {unit}"})
     return out
+
+
+def mask(text, quantities):
+    """The question as the encoder sees it: each value replaced by a marker of its dimension.
+
+    "A car at 15 m/s brakes at 0.69g" → "A car at <speed1> brakes at <acceleration>". Speeds are
+    numbered in order, since the order head reads <speed1> and <speed2>; a value the extractor can't
+    use becomes <number>.
+    """
+    out, pos, speeds = "", 0, 0
+    for q in quantities:
+        start, end = q["span"]
+        if q["dimension"] == "speed":
+            speeds += 1
+            marker = f"<speed{speeds}>"
+        else:
+            marker = f"<{q['dimension'] or 'number'}>"
+        out += text[pos:start] + marker
+        pos = end
+    return out + text[pos:]
