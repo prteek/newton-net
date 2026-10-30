@@ -125,6 +125,7 @@ Gives the rest of the system three things; anything else is the planner's job.
   | Acceleration, at constant speed ("cruising", "steady") | a = 0 |
   | Acceleration, braking with a road surface given | learned value for that surface |
   | Acceleration, braking with no surface given | learned value for a dry road |
+  | (both acceleration rows apply only when nothing else fixes a: not when a is what's asked, nor when the question says where the car must stop) | |
   | Mass | 2,000 kg, unless stated |
   | Anything else (speed when not from rest, distance or time) | nothing: the planner refuses with what's missing |
 
