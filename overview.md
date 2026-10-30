@@ -9,7 +9,7 @@ Build Newton net: a TinyLLM router plus a fixed Newtonian physics (3 equations o
 
 # Inputs
 
-- Synthetic scenarios across three motion types (braking, accelerating, constant speed): speed 5–35 m/s, mass 900–2,200 kg, deceleration 1–9 m/s², acceleration 1–5 m/s², reaction time 0.5–2.5 s, journey times up to 2 h, dry/wet/icy surfaces
+- Synthetic scenarios across three motion types (braking, accelerating, constant speed): speed 5–35 m/s, deceleration 1–9 m/s², acceleration 1–5 m/s², journey times up to 2 h, dry/wet/icy surfaces
 - 20–50 question templates plus validated paraphrases, ≤160 characters, across a range of complexity and ambiguity scenarios
 
 # Success criteria and metrics
