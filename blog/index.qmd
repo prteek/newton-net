@@ -33,7 +33,7 @@ ASSETS.mkdir(exist_ok=True)
 
 A car does 30 m/s on a wet road and the driver reacts in 1.5 s. How far does it travel before stopping? An LLM answers from what it has seen; a calculator answers from the equations. The two don't always agree.
 
-The usual fix is a tool call: the model writes the sum and Python does it. [Qwenputer](https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer) takes the other route and puts a CPU inside the weights of Qwen3.5-4B. This post tries the same idea at a much smaller scale. Newton net is a tiny language model (about 0.25–0.5M parameters) that reads a short driving question, picks one of four equations of motion, and runs that equation in a fixed physics engine inside its own forward pass. The engine's maths is exact and frozen; the language model is trained through it, so a wrong route or a misread speed costs a wrong answer. It is tested on 800 held-out questions for route accuracy, answer error and how often it correctly refuses questions it can't answer, against <!-- TODO: baseline, e.g. a classifier and the same engine trained separately and glued together -->.
+The usual fix is a tool call: the model writes the sum and Python does it. [Qwenputer](https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer) takes the other route and puts a CPU inside the weights of Qwen3.5-4B. This post tries the same idea at a much smaller scale. Newton net is a tiny language model (about 0.25–0.5M parameters) that reads a short driving question, picks one of the equations of motion, and runs that equation in a fixed physics engine inside its own forward pass. The engine's maths is exact and frozen; the language model is trained through it, so a wrong route or a misread variable from input text costs a wrong answer. It is tested on 800 held-out questions for route accuracy, answer error and how often it correctly refuses questions it can't answer.
 
 Everything is open:
 
@@ -44,7 +44,7 @@ Everything is open:
 **TL;DR**
 
 - A tiny language model routes driving questions to a frozen Newtonian engine inside one network, trained end to end.
-- <!-- TODO: headline number, e.g. route accuracy X% and answer MAE Y m on 800 held-out questions, against Z for the baseline -->
+- <!-- TODO: headline number, e.g. route accuracy X% and answer MAE Y m on 800 held-out questions -->
 - <!-- TODO: the catch, e.g. it only knows four equations; anything else it should refuse, and it does so in X% of cases -->
 
 ## The data
@@ -55,9 +55,9 @@ Everything is open:
 
 <!-- TODO: resulting_distance, required_acceleration, resulting_time, resulting_speed, unsupported. One sentence on why the refuse route exists: without it the model makes up answers for off-topic questions. -->
 
-## A baseline to beat
+## A proof of concept, not a benchmark
 
-<!-- TODO: the separately trained classifier + engine (and/or an LLM answering directly). Its numbers on the same test set. -->
+<!-- TODO: state the scope flatly, early. Suggested: "There is no baseline here, on purpose. Four equations of motion are easy enough that any LLM, or a large enough network, can learn them; beating one would prove little. The question is whether the design works at all: a router trained through a frozen engine. A fair comparison needs harder problems, where the simplicity and robustness of exact maths in the forward pass can be weighed against accuracy." -->
 
 ## The engine inside the network
 
