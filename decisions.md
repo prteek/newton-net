@@ -42,12 +42,8 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 ## Output
 
-- The answer with unit relevant to question (unit should be output as part of the equation itself) e.g. "113 m"
-    - Time output in seconds and if output > 3600 use hours
-    - Distance output in m if output > 2000 use km
-    - Speed output in km/h always
-    - Acceleration output in m/s
-    - Force output in N
+- The answer with unit relevant to question (unit should be output as part of the equation itself) e.g. "98 m"
+
 - A generic refusal stating most common (hard coded) failure modes
     I can only answer questions about physics of motion please check:
     - The query is relevant to the topic
@@ -57,6 +53,62 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
      - Internal answer with SI units
      - Route i.e. equation used: "distance / acceleration / time".
      - Optional:
-        - Assumptions: "wet road → deceleration 5.0 m/s²", "no reaction time given → 0 s", based on vehicle type assumed mass e.g. car 2000 kg van 5000 kg etc. no vehicle specified then use car
+        - Assumptions: "wet road → deceleration 5.0 m/s²", "Mass -> 2000kg"
         - Confidence: how sure model was ? the route probabilities, e.g. "stopping distance 0.97".
 - A static architecture diagram of the model at the top with some writeup on what the app does
+
+# System requirements
+
+## Input
+- Do not accept inputs in textbox beyond 160 characters
+- Extract known quantities along with their units and labels or if no inputs are given
+- Identify the requested output or if no output is requested
+
+## Routing
+- Very ambiguous questions to be routed to refusal
+- Route non english input characters to refusal
+- Multiple questions to be routed to refusal
+- Missing required inputs should lead to refusal
+- No output requested should lead to refusal
+- Routing should be probabilistic and part of learning process
+- Possible routes:
+    - Calculate speed
+    - Calculate time
+    - Calculate distance
+    - Calculate acceleration
+    - Calculate Force
+    - Refusal
+
+## Unit conversion
+- For identified unit in input check if unit in a list that converter can handle, then convert quantities to SI units
+
+## Assumptions
+- When to assume and when to refuse. User requirements assumes some missing inputs and refuses on
+     others, the following rules should guide the training data in learning assumptions and refusals:
+
+  | Missing input                           | Behaviour                                       |
+  |-----------------------------------------|-------------------------------------------------|
+  | Speed (when not "from rest")            | Refuse                                          |
+  | Speed "from rest (or stationary etc.)"  | 0                                               |
+  | Acceleration, with a road surface given | Use the surface learnt value                    |
+  | Acceleration, with no surface given     | Assume a dry road and use learnt value          |
+  | Reaction time                           | Assume 0 always                                 |
+  | Distance or time the route needs        | Refuse                                          |
+  | Vehicle mass                            | Assume 2000kg unless specified exactly          |
+
+
+## Equations
+- Calculate speed: v = u + a * t
+- Calculate acceleration: a = F/m or a = (v-u)/t or a = (v^2 - u^2)/(2 * s) or a = 2 * (s - u * t)/t^2
+- Calculate distance: s = u * t + 1/2 * a * t^2 or s = (v^2 - u^2)/(2 * a)
+- Calculate force: F = m * a
+- Calculate time: t = (v-u)/a or t = 2 * s/(u + v) or t = (-u + sqrt(u^2 + 2 * a * s))/a (equivalently t = 2 * s/(u + sqrt(u^2 + 2 * a * s)), which also covers a = 0 → t = s/u)
+
+## Output
+- There are no implausible outputs as this is a proof of concept
+- Format output to be user friendly
+    - Time output in seconds and if output > 3600 use hours
+    - Distance output in m if output > 2000 use km
+    - Speed output in km/h always
+    - Acceleration output in m/s
+    - Force output in N
