@@ -1,5 +1,6 @@
 Backlog:
   ☐ Deploy on HF intel-spr x2 endpoint with scale-to-zero
+  ☐ Extension: network learns to compose the equation chain (2–3 soft steps over equations and inputs), fully supervised from generator plans; see overview.md Ideas
 
 Blog:
   ☐ Start write up to bring more definition and clarify motivation etc.

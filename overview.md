@@ -19,6 +19,9 @@ Build Newton net: a TinyLLM router plus a fixed Newtonian physics (3 equations o
 - Runs on a CPU-only HF endpoint (`intel-spr x2`, scale-to-zero)
 - No baseline comparison in this version: it is a proof of concept on simple equations. Benchmarking against alternatives waits for complex scenarios, where simplicity and robustness can be weighed alongside accuracy (see [decisions.md](./decisions.md))
 
+# Ideas
+
+- **Learned composition (extension):** instead of fixed routes or a rule-based planner, the network itself picks a short chain of equations. Over a fixed number of steps (2–3) it soft-selects one equation from a small set and its inputs from what is known so far (the question's values plus earlier results), e.g. a = (v − u)/t, then F = m·a. The generator knows the correct chain for each question, so it can be trained with full supervision as a few classification tasks; learning the chain from answers alone is much harder. This would show a network learning to compose exact computations, not just read inputs for them. See Neural Programmer (Neelakantan et al., 2016) and Neural Module Networks (Andreas et al., 2016).
 
 [Project Summary](./summary.md) <br/>
 [Decisions](./decisions.md) <br/>
