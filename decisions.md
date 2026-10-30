@@ -31,7 +31,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # Deployment
 
-- HF Inference Endpoint `intel-spr x2` (2 vCPU / 4 GB, $0.067/hr), 0–1 replicas, scale-to-zero, custom handler. No GPU.
+- TBD either within app itself or endpoint depending on model size
 
 # User requirements
 
@@ -54,6 +54,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
     - Units are specified correctly e.g. speed (mph, kph, km/h etc)
     - As much as possible known information is included in the question (e.g. include known speed or acceleration or distance if not already)
 - A trace, which is what makes this different from asking an LLM:
+     - Internal answer with SI units
      - Route i.e. equation used: "distance / acceleration / time".
      - Optional:
         - Assumptions: "wet road → deceleration 5.0 m/s²", "no reaction time given → 0 s", based on vehicle type assumed mass e.g. car 2000 kg van 5000 kg etc. no vehicle specified then use car
