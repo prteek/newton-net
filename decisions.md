@@ -53,3 +53,4 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
      - Optional:
         - Assumptions: "wet road → deceleration 5.0 m/s²", "no reaction time given → 0 s"
         - Confidence: how sure model was ? the route probabilities, e.g. "stopping distance 0.97".
+- A static architecture diagram of the model at the top with some writeup on what the app does
