@@ -51,9 +51,9 @@ Everything is open:
 
 <!-- TODO: synthetic scenarios over braking, accelerating and constant speed (speed 5–35 m/s, deceleration 1–9 m/s², dry/wet/icy) and 20–50 question templates plus paraphrases, ≤160 characters. Show one question and its answer before the totals. -->
 
-## Five routes
+## What it can be asked
 
-<!-- TODO: resulting_distance, required_acceleration, resulting_time, resulting_speed, unsupported. One sentence on why the refuse route exists: without it the model makes up answers for off-topic questions. -->
+<!-- TODO: targets speed, time, distance, acceleration, force, refuse; the planner chains the equations. One sentence on why the refuse class exists: without it the model makes up answers for off-topic questions. -->
 
 ## A proof of concept, not a benchmark
 
@@ -65,7 +65,7 @@ Everything is open:
 
 ## Training through the engine
 
-<!-- TODO: joint training with full supervision (route, inputs, units, refuse/answer, target). Why joint: the model can learn that "wet road" means lower deceleration without being told. -->
+<!-- TODO: trained only on question + answer + unit; the model learns how to read a question by matching answers through the planner, and the sign and road-surface deceleration through the physics. Why joint: the model learns that "wet road" means lower deceleration without being told. -->
 
 ## The test
 

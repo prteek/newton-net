@@ -6,13 +6,20 @@ Blog:
   ☐ Start write up to bring more definition and clarify motivation etc.
 
 Modelling:
-  ☐ Define architecture clearly and document it in writeup
-  ☐ Implement unit normaliser and NewtonPhysics engine (4 routes + unsupported gate) @high
-  ☐ Implement TinyLLM encoder with route, slot, uncertainty, action and conflict heads
-  ☐ Train with combined loss; plot learning curves and calibration
+  ☐ Define evaluation plan (hand-labelled readings, success criteria) @high
+  ☐ Word-level tokeniser over marked text
+  ☐ Implement TinyLLM encoder with target, order, sign, from-rest, stopping, acceleration-source and |a| heads @high
+  ☐ Training loop: target cross-entropy + answer matching over readings, sign warm-up then soft sign
+  ☐ Inference: most likely reading, confidence threshold, output formatter and trace
+  ☐ Checker (length, English)
+  ☐ Document architecture in writeup
 
 Data:
   ☐ Build synthetic data using LLMs @high
 
 Archive:
+  ✔ Planner with full rule set, guards, tolerances and conflict check @done(26-10-30) @project(Modelling)
+  ✔ Extractor with quantulum3 + pint and value markers @done(26-10-30) @project(Modelling)
+  ✔ Readings and assembler with soft sign @done(26-10-30) @project(Modelling)
+  ✔ Question generator (question, answer, unit) checked against the real pipeline @done(26-10-30) @project(Data)
   ✔ Scaffold repo with uv and torch @done(26-10-29) @project(Backlog)

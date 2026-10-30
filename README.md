@@ -1,6 +1,6 @@
 # Newton net
 
-Newton net is a tiny language model (about 0.25–0.5M parameters) that reads short driving questions (≤160 characters), picks a simple laws of motion calculation, estimates uncertain inputs (speed, acceleration or deceleration) and runs a fixed, differentiable Newtonian engine inside its own `forward()`. It returns an answer, an uncertainty interval and a physics trace. The neural part interprets the question; the maths is exact. Questions cover braking, accelerating and constant-speed driving, not just stopping distances.
+Newton net answers short driving questions (≤160 characters) about motion with exact physics computed inside the network. A fixed extractor reads each value and unit; a tiny language model (about 0.25–0.5M parameters) decides what is asked and how the values fit together (which speed is the start, braking or accelerating, what is implied); a fixed, differentiable planner chains the equations of motion to the answer. It returns the answer and a trace of each step, or refuses with a reason. It is trained only on questions and their answers, with gradients flowing through the physics. Questions cover braking, accelerating and constant-speed driving.
 
 ## Project docs
 
@@ -13,7 +13,7 @@ Newton net is a tiny language model (about 0.25–0.5M parameters) that reads sh
 ## Other folders
 
 - `data/` — raw source data files (not committed).
-- `dataset/` — synthetic training data generator and splits.
-- `model/` — TinyLLM, unit normaliser and NewtonPhysics engine.
+- `dataset/` — synthetic question generator (`generate.py`) and PyTorch dataset (`torch_data.py`).
+- `model/` — extractor (`extract.py`), readings and assembler (`reading.py`), planner (`planner.py`); the TinyLLM is still to come.
 - `space/` — deployment (Hugging Face endpoint handler / demo).
 - `blog/` — write-up.

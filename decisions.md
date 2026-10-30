@@ -1,6 +1,6 @@
 ---
 title: Project decisions
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
@@ -17,11 +17,12 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 # Architecture
 
 - Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the model learn how to read a question from its answer alone (see System requirements → 3. Reader + router).
-- TinyLLM: d_model 48, 1–2 layers, 48–64 tokens, 2k–8k vocab (~0.25–0.5M params).
+- TinyLLM: a small transformer encoder over the marked text: d_model 48, 2 layers, 4 attention heads, learned positions, up to 64 tokens, dropout 0.1, a [CLS] token whose vector is the pooled h (~0.25–0.5M params). Its heads are in System requirements → 3. Reader + router.
+- Tokeniser: word-level, built from the training questions plus the value markers (`<speed1>`, `<time>`, …) and [CLS], [PAD], [UNK]; about 2k words. Simplest for a narrow domain once values are masked; revisit a small BPE vocabulary when paraphrased or real questions bring typos and unseen words.
 - A fixed extractor (quantulum3 + pint) finds each value and unit and converts it to SI; the unit's dimension fixes which quantity a value can be. Extraction and unit conversion are never learned.
-- Acceleration magnitude (braking or speeding up) should be continuous and not discrete.
-- We will focus on different mean levels due to unknown/uncertain inputs but not care about uncertainty or propagating it in the first version
-- Action head (answer / refuse) we will either answer or reject a request even in cases of ambiguity
+- The road-surface acceleration is one continuous learned value (the |a| head), not discrete buckets.
+- No uncertainty in the first version: each quantity has one value (a road surface gives one typical deceleration, not a range), and no intervals are propagated to the answer.
+- Every question is either answered or refused, even when ambiguous; there is no partial or conditional answer. Refusals come from the reader + router's refuse class or from a fixed stage, each with its reason.
 
 # Training
 
@@ -112,7 +113,17 @@ Training data is only (question, answer, unit); see `dataset/generate.py`.
   - **Warm-up:** start training with the sign enumerated as −1 and +1 inside the readings (`readings(..., sign=None)`) so the sign head learns which side it is on from matching answers, then switch to the soft sign once it is confident, to fine-tune it through the physics.
 - **Road-surface |a|:** a continuous value, trained by the answer loss through the planner's arithmetic.
 - **What the answer can't tell apart:** with the sign enumerated, more than one reading matches in 39% of generated questions. Mostly time symmetry: braking from 124 km/h to a stop covers the same distance and takes the same time as accelerating from rest to 124 km/h, so for distance and time questions the answer can't say which. The answer is right either way, but the trace can show the mirror reading. Signed answers (acceleration, force) do tell them apart and teach the shared encoder what "brake" means.
+- **Match function:** match(reading) = exp(−(log|ŷ| − log|y|)² / 2σ²) with σ = 0.05 (a 5% miss scores about 0.6), and 0 when the sign of ŷ differs from the label's or the planner refuses. Smooth, so |a| and the soft sign get gradient; for a question labelled without an answer, match is 1 if the planner refuses and 0 otherwise.
+- **Loss:** target cross-entropy + the answer-matching loss, weight 1 each.
+- **Sign warm-up switch:** the sign is enumerated (±1) until the sign head is at least 0.9 confident on 90% of training questions, then soft.
+- **Batching:** the planner runs once per reading per question in a Python loop (about 6 readings × 64 questions a batch), which is fast enough on a CPU at this size.
+- **Data size:** 5k–10k generated questions for the first training runs.
 - **Refused questions:** off-topic and other reader refusals train only the target head (refuse); questions refused later (missing input, contradiction, impossible motion) train the target head on their unit and push the readings towards ones the planner refuses.
+
+## Inference
+- The extractor runs, then the encoder; each head's most likely choice gives one reading, with a hard sign (±1). The assembler and planner turn it into an answer or a refusal.
+- **Confidence threshold:** if that reading's probability (the product of the chosen heads' probabilities, including the target's) is below a threshold, the question is refused as low confidence instead of answered. The threshold is set on held-out questions.
+- No fallback to a less likely reading when the planner refuses the most likely one: that would hide model errors behind a lucky alternative.
 
 ## Why both a router and a planner
 Each does the half of the job the other can't.

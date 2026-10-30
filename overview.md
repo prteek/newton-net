@@ -5,12 +5,13 @@ date: 2026-10-29
 
 # Objective
 
-Build Newton net: a TinyLLM router plus a fixed Newtonian physics (3 equations of motion) engine in one computation graph. It is an alternative to prevalent LLM tool calling systems and is heavily inspired by Qwenputer where a computer was put inside Qwen3.5 model. It should answer short questions in a car driving context with exact maths, outputing both result and a trace, and abstain on anything out of scope. The focus is not just braking and deceleration: questions also cover accelerating (e.g. time to reach 60 mph from rest) and constant speed (e.g. distance covered in 20 minutes at 70 mph).
+Build Newton net: a tiny language model plus a fixed, differentiable Newtonian planner (the equations of motion and F = m·a) in one computation graph, with a fixed extractor reading values and units. It is an alternative to prevalent LLM tool calling systems and is heavily inspired by Qwenputer where a computer was put inside Qwen3.5 model. It should answer short questions in a car driving context with exact maths, outputing both result and a trace, and abstain on anything out of scope. The focus is not just braking and deceleration: questions also cover accelerating (e.g. time to reach 60 mph from rest) and constant speed (e.g. distance covered in 20 minutes at 70 mph).
 
 # Inputs
 
 - Synthetic scenarios across three motion types (braking, accelerating, constant speed): speed 5–35 m/s, deceleration 1–9 m/s², acceleration 1–5 m/s², journey times up to 2 h, dry/wet/icy surfaces
 - 20–50 question templates plus validated paraphrases, ≤160 characters, across a range of complexity and ambiguity scenarios
+- Each training example is only the question, its answer in SI and the answer's unit (no unit for questions to refuse)
 
 # Success criteria and metrics
 
