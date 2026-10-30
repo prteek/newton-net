@@ -1,10 +1,10 @@
 ---
 # The blog post: `QUARTO_PYTHON=.venv/bin/python quarto render blog/index.qmd` (from the repo root) writes
-# computing-neural-net.md next to this file, ready to paste into the Hugging Face article editor, with
+# newton-net.md next to this file, ready to paste into the Hugging Face article editor, with
 # its figures in assets/ (upload each in the editor, which replaces its local link). Code cells import user_journey.
 format:
   gfm:
-    output-file: computing-neural-net
+    output-file: newton-net
     wrap: preserve
 filters:
   - _hf-markdown.lua  # inline maths as \\( ... \\)
@@ -27,13 +27,66 @@ ASSETS = Path("assets")
 ASSETS.mkdir(exist_ok=True)
 ```
 
-# Can neural nets compute ?
+# Can a Small Language Model Do Physics Without a Tool Call?
 
-## Simulating Newton's equations inside a network
+## A TinyLLM Router and a Fixed Physics Engine in One Graph
 
-I recently came across the amazing idea of embedding a CPU into the model weights itself [Qwenputer](https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer), it is very different from what we have currently with LLMs where they make a tool call (to something like python) to perform computations where necessary. LLMs inherently cannot compute anything, so if asked *what's 1+1* they look up in their training data and find examples matching this query and get an answer from there. This creates issues when for e.g. the computaion is complex or it is a series of computations where any noise in intermediate steps can compound severly and corrupt the final results.
+A car does 30 m/s on a wet road and the driver reacts in 1.5 s. How far does it travel before stopping? An LLM answers from what it has seen; a calculator answers from the equations. The two don't always agree.
 
-The idea behind Qwenputer seems to be that computations happen in a forward pass itself once the llm decides that a computation is indeed required.
+The usual fix is a tool call: the model writes the sum and Python does it. [Qwenputer](https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer) takes the other route and puts a CPU inside the weights of Qwen3.5-4B. This post tries the same idea at a much smaller scale. Newton net is a tiny language model (about 0.25–0.5M parameters) that reads a short driving question, picks one of four equations of motion, and runs that equation in a fixed physics engine inside its own forward pass. The engine's maths is exact and frozen; the language model is trained through it, so a wrong route or a misread speed costs a wrong answer. It is tested on 800 held-out questions for route accuracy, answer error and how often it correctly refuses questions it can't answer, against <!-- TODO: baseline, e.g. a classifier and the same engine trained separately and glued together -->.
 
-Building on same principles I was playing around with the idea of having defined computations or indeed bulding blocks of computation that then combine to give more reliable and repeateble outputs. <br/>
-As an experiment in this direction, designing a physics simulator inside the neural net itself seems like a good starting point. The idea is simple
+Everything is open:
+
+- 🎮 **Try it:** <!-- TODO: Space link -->
+- 📊 **Data:** <!-- TODO: dataset link -->
+- 💻 **Code:** [github.com/prteek/newton-net](https://github.com/prteek/newton-net)
+
+**TL;DR**
+
+- A tiny language model routes driving questions to a frozen Newtonian engine inside one network, trained end to end.
+- <!-- TODO: headline number, e.g. route accuracy X% and answer MAE Y m on 800 held-out questions, against Z for the baseline -->
+- <!-- TODO: the catch, e.g. it only knows four equations; anything else it should refuse, and it does so in X% of cases -->
+
+## The data
+
+<!-- TODO: synthetic scenarios over braking, accelerating and constant speed (speed 5–35 m/s, mass 900–2,200 kg, deceleration 1–9 m/s², reaction time 0.5–2.5 s, dry/wet/icy) and 20–50 question templates plus paraphrases, ≤160 characters. Show one question and its answer before the totals. -->
+
+## Five routes
+
+<!-- TODO: resulting_distance, required_acceleration, resulting_time, resulting_speed, unsupported. One sentence on why the refuse route exists: without it the model makes up answers for off-topic questions. -->
+
+## A baseline to beat
+
+<!-- TODO: the separately trained classifier + engine (and/or an LLM answering directly). Its numbers on the same test set. -->
+
+## The engine inside the network
+
+<!-- TODO: one equation, e.g. stopping distance d = v·t_r + v²/2a. A 2–6 line snippet showing physics called inside forward(). Units go through a fixed converter, never learned. -->
+
+## Training through the engine
+
+<!-- TODO: joint training with full supervision (route, inputs, units, refuse/answer, target). Why joint: the model can learn that "wet road" means lower deceleration without being told. -->
+
+## The test
+
+<!-- TODO: route accuracy, answer MAE/RMSE, refusal recall and false-refusal rate on 800 held-out questions. One concrete question first, then the table. Learning curve at 500, 1k, 2k, 5k, 10k, 20k examples. -->
+
+## What it gets wrong
+
+<!-- TODO: limits stated flatly; failure cases; one check of any claimed cause. -->
+
+## Lessons learned
+
+<!-- TODO: 3–4 bold imperatives, each with one sentence of evidence from this post. -->
+
+## Try it
+
+<!-- TODO: 5–8 line runnable snippet, plus the Space link. -->
+
+## References
+
+- divagr1925 (2026). *Qwen3.5-4B-Qwenputer*. Hugging Face. <https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer>
+<!-- TODO: other references in author–year form -->
+
+<!-- TODO: if a later section needs it, use this framing for the scope paragraph:
+Within its four equations the maths is exact; outside them the model should refuse. Whether this extends to other domains where much of the knowledge is already computable (engineering, finance) is not tested here. -->
