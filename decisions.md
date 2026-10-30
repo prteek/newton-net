@@ -10,6 +10,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 - Five routes: `resulting_distance`, `required_[acceleration|deceleration]`, `resulting_time`, `resulting_speed`, `unsupported`. Without an abstain route the soft mixture makes up answers for off-topic questions.
 - Motion is not just braking: each question is one of three motion types, braking, accelerating or constant speed, and every route covers each type where it makes sense (e.g. distance to stop, distance to reach 60 mph from rest, distance covered in 20 minutes at 70 mph). Acceleration is signed in the engine: negative when braking.
 - Inputs are ≤160-character, Twitter-like questions.
+- This version is a proof of concept, not a benchmark: no comparison against baselines (tool-calling LLMs, separately trained classifier + engine). The equations are simple enough that any LLM or large enough network could learn them, so beating one here would prove little. The aim is to show the architecture works and can extend to more complex scenarios. Real benchmarking happens on those complex scenarios, and should weigh the simplicity and robustness this design offers over the alternatives, not just accuracy.
 - Decision support only, not a controller: a verified deterministic controller must decide and act.
 
 # Architecture

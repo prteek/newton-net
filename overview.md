@@ -17,6 +17,7 @@ Build Newton net: a TinyLLM router plus a fixed Newtonian physics (3 equations o
 - Route accuracy, answer MAE/RMSE, unsupported recall and false-positive rate on an 800-example test set
 - Learning curves at 500, 1k, 2k, 5k, 10k and 20k examples
 - Runs on a CPU-only HF endpoint (`intel-spr x2`, scale-to-zero)
+- No baseline comparison in this version: it is a proof of concept on simple equations. Benchmarking against alternatives waits for complex scenarios, where simplicity and robustness can be weighed alongside accuracy (see [decisions.md](./decisions.md))
 
 
 [Project Summary](./summary.md) <br/>
