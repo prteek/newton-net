@@ -1,6 +1,6 @@
 ---
 title: Project decisions
-updated: 2026-10-30
+updated: 2026-11-01
 ---
 
 Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
@@ -35,6 +35,8 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 # Deployment
 
 - TBD either within app itself or endpoint depending on model size
+- The app is a Gradio Space in `space/` (`app.py`, `README.md`, `requirements.txt`, `architecture.svg`), like the other HF projects. It imports `model/` directly: locally from the repo root (`uv run --with gradio==6.30.0 python space/app.py`; gradio is not a project dependency), and on the Space `model/` is copied next to `app.py` when publishing.
+- Expect a slow cold start: the first import of quantulum3, pint and torch takes about a minute.
 
 # User requirements
 
@@ -70,7 +72,7 @@ The system is a pipeline of six stages. Only the reader + router is learned; eve
 Question (≤160 chars)
   │
   ▼
-1. Checker ──────────── too long, not English ───────────────────────────► Refusal
+1. Checker ──────────── empty, too long, not English, more than one "?" ─► Refusal
   │
   ▼
 2. Extractor: model/extract.py (fixed: quantulum3 + pint)
@@ -138,7 +140,9 @@ Each does the half of the job the other can't.
 
 ## 1. Checker
 - The text box accepts at most 160 characters; longer input is refused before the model runs.
-- Input with non-English characters is refused.
+- Input with non-English characters is refused: any non-ASCII letter (accents, other scripts). Symbols such as ² and – are allowed.
+- Empty input is refused (no question asked).
+- More than one "?" is refused as more than one question, before the model runs; the reader still refuses multiple questions it can only judge from meaning ("how far and how long…").
 
 ## 2. Extractor
 Implemented in `model/extract.py`; nothing is learned.
@@ -184,6 +188,7 @@ Implemented in `model/reading.py`, which also lists every reading for training.
 - Mass is 2,000 kg unless stated (a fixed default, not learned).
 - An implied value never fills the quantity being asked for (no implied a when a is the target).
 - **Refuses:** two values of the same dimension ("for 14 minutes, or maybe 11 minutes"), or more than two speeds. Two speeds are not a duplicate: they are a start and a final speed.
+- **At inference** it builds the one reading the reader + router chose; if those choices don't make a valid reading (e.g. an order for a speed that isn't there), the question is refused as a reader error.
 
 ## 5. Planner
 Implemented in `model/planner.py`.
@@ -215,9 +220,23 @@ Implemented in `model/planner.py`.
   | Acceleration | m/s² |
   | Force | N |
 
+- **Number format:** thousands separators from 100 up ("10,729 N"), otherwise 3 significant figures ("4.37 s"); a negative acceleration or force is labelled "(braking)", e.g. "Force: F = −10,729 N (braking)".
 - **No plausibility check:** any answer the planner produces is shown, as this is a proof of concept.
-- **Trace:** answer in SI, target and its probability, values read with their units, assumptions made, and each planned step with its numbers.
-- **Refusal:** the fixed message from User requirements → Output, plus the specific reason from the stage that refused.
+- **Trace,** in pipeline order:
+  - the marked text as the encoder sees it ("I'm doing <speed1> and …");
+  - values read: as written, quantity, SI value;
+  - the reader + router's choices: target and its probability, which speed is u and which v, the motion (braking, accelerating, constant speed);
+  - the known values after assembly, in SI;
+  - assumptions, only those the plan actually used (the default mass is listed only when a step uses m);
+  - each planned step with its numbers, and the answer in SI;
+  - on a refusal, the stage that refused and its reason.
+- **Refusal:**
+  - Checker, extractor, reader + router and assembler: the fixed message from User requirements → Output, plus the stage and its reason.
+  - Planner: a plain-language reason instead of the fixed message, since the question was understood and the reason says exactly what to fix:
+    - missing input → "Not enough information. Add the starting speed, or the acceleration and time.";
+    - conflict → "The values given contradict each other: a is given as 2.5, but a = F/m gives 5.068";
+    - guard → "That motion isn't possible: it stops after 4 s, before 6 s."
+    The raw planner reason is kept in the trace.
 
 ## Refusals at a glance
 
@@ -225,6 +244,26 @@ Implemented in `model/planner.py`.
 |---|---|
 | Longer than 160 characters; not English | 1. Checker |
 | Number without a unit; unit of a dimension the physics doesn't cover | 2. Extractor |
+| Empty; more than one "?" | 1. Checker |
 | Off topic, very ambiguous, more than one question, no question asked | 3. Reader + router |
-| Two values of one dimension; more than two speeds | 4. Assembler |
+| Two values of one dimension; more than two speeds; the reader's choices don't make a valid reading | 4. Assembler |
 | Inputs contradict each other; missing input; impossible motion (guard) | 5. Planner |
+
+## 7. App
+`space/app.py`, a Gradio Blocks app.
+- **Layout, top to bottom:** a demo banner (while the reader is a placeholder), title and a two-sentence description, the architecture diagram (`architecture.svg`, drawn in `currentColor` so it works in light and dark themes), a one-line note of the fixed assumptions, the question box, examples, an Answer button (Enter also submits), the answer, the trace (an open accordion) and a link to the code.
+- **Examples** cover every outcome: an answer for each motion type and target, an implied value, a missing input, impossible motion, a number without a unit and an off-topic question.
+- **Reader + router interface:** `read(question, quantities)` returns the target (or refuse with a reason), the reading's choices in `model.reading.readings`' keys (order, sign, u0, v0, a_source), the road surface and its |a|, and each head's probability. The trained TinyLLM replaces only this function's body.
+- **Until the TinyLLM is trained**, `read` is keyword rules on the marked text:
+  - every choice has probability 1, shown as such in the trace, and no confidence threshold is applied;
+  - road-surface |a| uses the generator's typical values: dry 7.5, wet 5.0, icy 2.0 m/s²;
+  - the banner says it is a demo, not the real model.
+
+
+# Known limitations
+
+- **Negation and wording the training data never shows are read as if absent.** "not doing 70mph do not want to stop how much acceleration I need in 10s ?" is answered a = −3.13 m/s² (u = 70 mph, "stop" → v = 0) instead of refused: "not doing 70 mph" leaves the speed unknown and "do not want to stop" leaves v unknown.
+  - **Why:** the reader + router learns only from generated questions, and the generator has no negated values or cues, so nothing teaches the encoder to attend to "not" or "don't" next to "stop" or a value. The keyword placeholder in the demo fails the same way, and so will the trained model.
+  - **The confidence threshold is not a defence:** a small model is often confident on inputs unlike its training data, and this question looks like an ordinary braking question.
+  - **Accepted for this proof of concept:** negation is deliberately left out of the training data and the demo is not patched for it. The trace shows the assumption that went wrong ("comes to a stop → v = 0"), so a user can see it.
+  - **The general point:** the planner makes answers exact only for what the reader reads. Anything the reader misreads (negation, sarcasm, hypotheticals, phrasing far from the templates) becomes a wrong answer that is exact and confidently presented, not a refusal. Handling it needs training questions of that kind, which the architecture supports without new labels (a refused or answered question–answer pair is enough).
