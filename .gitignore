@@ -9,3 +9,4 @@ data/
 blog/assets/
 blog/*.md
 *__pycache__/
+.venv/
