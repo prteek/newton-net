@@ -1,13 +1,14 @@
 ---
-# The blog post: `QUARTO_PYTHON=.venv/bin/python quarto render blog/index.qmd` (from the repo root) writes
-# newton-net.md next to this file, ready to paste into the Hugging Face article editor, with
-# its figures in assets/ (upload each in the editor, which replaces its local link). Code cells import user_journey.
+# The blog post: `QUARTO_PYTHON=.venv/bin/python quarto render blog/index.qmd` (from the repo root) writes newton-net.md
+# next to this file, ready to paste into the Hugging Face article editor, with its figures linked from the Hub
+# (assets-url; upload them first with `./publish.sh <message> blog`).
+assets-url: https://huggingface.co/datasets/prteek/newton-net-questions/resolve/main/blog
 format:
   gfm:
     output-file: newton-net
     wrap: preserve
 filters:
-  - _hf-markdown.lua  # inline maths as \\( ... \\)
+  - _hf-markdown.lua  # inline maths as \\( ... \\); assets/ links point to assets-url
 execute:
   echo: false
   warning: false
@@ -22,7 +23,7 @@ import numpy as np
 import pandas as pd
 from IPython.display import Markdown, display
 
-# figures are saved next to the post; the article editor swaps each for its own link when it is uploaded
+# figures are saved next to the post and linked from the Hub (assets-url)
 ASSETS = Path("assets")
 ASSETS.mkdir(exist_ok=True)
 ```
