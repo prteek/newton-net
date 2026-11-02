@@ -9,6 +9,10 @@ python_version: "3.12"
 app_file: app.py
 pinned: false
 license: cc-by-4.0
+models:
+  - prteek/newton-net
+datasets:
+  - prteek/newton-net-questions
 short_description: Exact driving physics from a question, with a trace
 ---
 

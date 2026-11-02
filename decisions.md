@@ -7,17 +7,17 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # Scope
 
-- Routes name the quantity asked for, not a formula: speed, time, distance, acceleration, force, or refusal (see System requirements → 3. Reader + router). The planner chooses the formulas. Without a refusal route the model would make up answers for off-topic questions.
+- Routes name the quantity asked for, not a formula: speed, time, distance, acceleration, force, or refusal (see System requirements → 2. Reader + router). The planner chooses the formulas. Without a refusal route the model would make up answers for off-topic questions.
 - Motion is not just braking: each question is one of three motion types, braking, accelerating or constant speed, and every route covers each type where it makes sense (e.g. distance to stop, distance to reach 60 mph from rest, distance covered in 20 minutes at 70 mph). Acceleration is signed in the engine: negative when braking.
 - Reaction time is out of scope: there is no reaction phase, so braking starts immediately and time is a single variable t. Questions that mention a reaction time are not generated.
-- Inputs are ≤160-character, Twitter-like questions.
+- Inputs are ≤160-character, Twitter-like questions. The limit is set on the app's text box (Gradio `max_length`), not checked by the model's pipeline.
 - This version is a proof of concept, not a benchmark: no comparison against baselines (tool-calling LLMs, separately trained classifier + engine). The equations are simple enough that any LLM or large enough network could learn them, so beating one here would prove little. The aim is to show the architecture works and can extend to more complex scenarios. Real benchmarking happens on those complex scenarios, and should weigh the simplicity and robustness this design offers over the alternatives, not just accuracy.
 - Decision support only, not a controller: a verified deterministic controller must decide and act.
 
 # Architecture
 
-- Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the model learn how to read a question from its answer alone (see System requirements → 3. Reader + router).
-- TinyLLM: a small transformer encoder over the marked text: d_model 48, 2 layers, 4 attention heads, learned positions, up to 64 tokens, dropout 0.1, a [CLS] token whose vector is the pooled h (~0.25–0.5M params). Its heads are in System requirements → 3. Reader + router.
+- Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the model learn how to read a question from its answer alone (see System requirements → 2. Reader + router).
+- TinyLLM: a small transformer encoder over the marked text: d_model 48, 2 layers, 4 attention heads, learned positions, up to 64 tokens, dropout 0.1, a [CLS] token whose vector is the pooled h (~0.25–0.5M params). Its heads are in System requirements → 2. Reader + router.
 - Tokeniser: word-level, built from the training questions plus the value markers (`<speed1>`, `<time>`, …) and [CLS], [PAD], [UNK]; about 2k words. Simplest for a narrow domain once values are masked; revisit a small BPE vocabulary when paraphrased or real questions bring typos and unseen words.
 - A fixed extractor (quantulum3 + pint) finds each value and unit and converts it to SI; the unit's dimension fixes which quantity a value can be. Extraction and unit conversion are never learned.
 - The road-surface acceleration is one continuous learned value (the |a| head), not discrete buckets.
@@ -64,23 +64,20 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 # System requirements
 
-The system is a pipeline of six stages. Only the reader + router is learned; everything else is fixed code. Each stage has one job, and any stage can refuse, with a reason that travels to the output.
+The system is a pipeline of five stages. Only the reader + router is learned; everything else is fixed code. Each stage has one job, and any stage can refuse, with a reason that travels to the output.
 
 ## Pipeline
 
 ```
-Question (≤160 chars)
+Question (≤160 chars, limited by the text box)
   │
   ▼
-1. Checker ──────────── empty, too long, not English, more than one "?" ─► Refusal
-  │
-  ▼
-2. Extractor: model/extract.py (fixed: quantulum3 + pint)
+1. Extractor: model/extract.py (fixed: quantulum3 + pint)
   │                     each number + unit → dimension and SI value;
   │                     the text with each value replaced by a marker: "at <speed1> brakes at <acceleration>"
   ├──────────────────── number without a unit, unit of another dimension ─► Refusal
   ▼
-3. Reader + router: TinyLLM (learned), reads the marked text
+2. Reader + router: TinyLLM (learned), reads the marked text
   ├─ target head:  speed | time | distance | acceleration | force | refuse ──► Refusal
   ├─ order head:   which speed is the start (u) and which the final speed (v)
   ├─ sign head:    braking (−) | accelerating (+); soft (2p − 1) in training
@@ -88,17 +85,17 @@ Question (≤160 chars)
                    no a stated → none | 0 (cruising) | road surface → |a| (learned value)
   │
   ▼
-4. Assembler: model/reading.py (fixed)
+3. Assembler: model/reading.py (fixed)
   │                     one value per dimension (up to two speeds); a and F → sign × |value|;
   │                     implied values fill gaps; mass 2,000 kg unless stated
   ├──────────────────── two values of one dimension, three speeds ────────► Refusal
   ▼
-5. Planner: model/planner.py (fixed, differentiable)
+4. Planner: model/planner.py (fixed, differentiable)
   ├─ conflict check ─ inputs contradict each other ──────────────────────► Refusal
   └─ shortest chain of guarded rules ─ missing input, guard fails ───────► Refusal
   │
   ▼
-6. Output formatter: answer in display units, trace, assumptions made
+5. Output formatter: answer in display units, trace, assumptions made
 ```
 
 ## Training
@@ -138,13 +135,7 @@ Each does the half of the job the other can't.
   - **Growth goes to the planner:** a new equation (friction, power) is one rule, and every combination it allows works without new routes. The router only needs new data when there is a new kind of quantity to read or a new target to name.
   - **One trace from both:** the extractor's values, the router's choices (which speed is which, the sign, what it assumed, how sure it was) and the planner's steps together make the trace the user sees.
 
-## 1. Checker
-- The text box accepts at most 160 characters; longer input is refused before the model runs.
-- Input with non-English characters is refused: any non-ASCII letter (accents, other scripts). Symbols such as ² and – are allowed.
-- Empty input is refused (no question asked).
-- More than one "?" is refused as more than one question, before the model runs; the reader still refuses multiple questions it can only judge from meaning ("how far and how long…").
-
-## 2. Extractor
+## 1. Extractor
 Implemented in `model/extract.py`; nothing is learned.
 - quantulum3 finds each number + unit (including number words such as "seventy"); pint converts it to SI and gives its dimension: speed, acceleration, time, distance, mass or force. Any unit pint knows is accepted, so knots, ft/s or yards need no list.
 - **Fixes for quantulum3:** "g" after a number is acceleration (standard gravity), not grams; "seconds" and "minutes" are times, not angles; "to" or a dash between two values ("15 m/s to 45 mph", "0–60 mph") is split into both values, with a bare first number taking the second's unit; a unit that swallowed the next word ("27 km/h at" read as per ampere-turn) is parsed again without it.
@@ -163,7 +154,7 @@ Implemented in `model/extract.py`; nothing is learned.
   - **The values stay exact.** They go from the extractor straight to the assembler and planner, never through the network, so masking costs no precision.
   - **Cost:** the encoder can't use a value's size as a clue (e.g. that 0 in "0 to 60 mph" means from rest; the 0 still reaches the planner as a speed). Within the questions in scope, the words carry the meaning.
 
-## 3. Reader + router (learned)
+## 2. Reader + router (learned)
 Decides only what the extractor leaves open; anything else is the planner's job.
 - **Target:** probabilities over speed, time, distance, acceleration, force and refuse; trained on the target the answer's unit names. At inference the most likely target is used, and its probability is shown as confidence.
 - **Refusals on meaning** (the refuse class): off topic, very ambiguous, more than one question, no question asked.
@@ -181,7 +172,7 @@ Decides only what the extractor leaves open; anything else is the planner's job.
 
 - **Trained by:** the target on its label; order and implied values by matching the answer; the sign and the road-surface |a| through the planner's equations (see Training). None of them has its own label.
 
-## 4. Assembler
+## 3. Assembler
 Implemented in `model/reading.py`, which also lists every reading for training.
 - Combines the extractor's values with the router's choices into one value per quantity, in SI.
 - Applies the sign to a stated a and F: sign × |value|, so a value written with a minus isn't flipped twice. The sign is the expected sign 2p − 1 in training and ±1 at inference.
@@ -190,7 +181,7 @@ Implemented in `model/reading.py`, which also lists every reading for training.
 - **Refuses:** two values of the same dimension ("for 14 minutes, or maybe 11 minutes"), or more than two speeds. Two speeds are not a duplicate: they are a start and a final speed.
 - **At inference** it builds the one reading the reader + router chose; if those choices don't make a valid reading (e.g. an order for a speed that isn't there), the question is refused as a reader error.
 
-## 5. Planner
+## 4. Planner
 Implemented in `model/planner.py`.
 - **Takes:** a target name and a dict of known values in SI, keyed u, v, a, t, s, m, F, with a signed and implied values already filled in. Values can be floats or torch tensors, so gradients flow through a plan.
 - **Returns:** the steps applied (each a rule with its formula text) and every value computed, or a refusal reason.
@@ -209,7 +200,7 @@ Implemented in `model/planner.py`.
 - **Missing inputs** are named as inputs the user could add, not intermediate results, e.g. "{a} or {s, u} or {t, u}".
 - **Not its job:** reading text, converting units, filling in defaults, or judging whether a question is on topic.
 
-## 6. Output formatter
+## 5. Output formatter
 - **Answer** in display units, as part of the final equation (e.g. "98 m"):
 
   | Quantity | Unit |
@@ -231,7 +222,7 @@ Implemented in `model/planner.py`.
   - each planned step with its numbers, and the answer in SI;
   - on a refusal, the stage that refused and its reason.
 - **Refusal:**
-  - Checker, extractor, reader + router and assembler: the fixed message from User requirements → Output, plus the stage and its reason.
+  - Extractor, reader + router and assembler: the fixed message from User requirements → Output, plus the stage and its reason.
   - Planner: a plain-language reason instead of the fixed message, since the question was understood and the reason says exactly what to fix:
     - missing input → "Not enough information. Add the starting speed, or the acceleration and time.";
     - conflict → "The values given contradict each other: a is given as 2.5, but a = F/m gives 5.068";
@@ -242,16 +233,14 @@ Implemented in `model/planner.py`.
 
 | Reason | Stage |
 |---|---|
-| Longer than 160 characters; not English | 1. Checker |
-| Number without a unit; unit of a dimension the physics doesn't cover | 2. Extractor |
-| Empty; more than one "?" | 1. Checker |
-| Off topic, very ambiguous, more than one question, no question asked | 3. Reader + router |
-| Two values of one dimension; more than two speeds; the reader's choices don't make a valid reading | 4. Assembler |
-| Inputs contradict each other; missing input; impossible motion (guard) | 5. Planner |
+| Number without a unit; unit of a dimension the physics doesn't cover | 1. Extractor |
+| Off topic, very ambiguous, more than one question, no question asked (including empty input) | 2. Reader + router |
+| Two values of one dimension; more than two speeds; the reader's choices don't make a valid reading | 3. Assembler |
+| Inputs contradict each other; missing input; impossible motion (guard) | 4. Planner |
 
-## 7. App
+## 6. App
 `space/app.py`, a Gradio Blocks app.
-- **Layout, top to bottom:** a demo banner (while the reader is a placeholder), title and a two-sentence description, the architecture diagram (`architecture.svg`, drawn in `currentColor` so it works in light and dark themes), a one-line note of the fixed assumptions, the question box, examples, an Answer button (Enter also submits), the answer, the trace (an open accordion) and a link to the code.
+- **Layout, top to bottom:** a demo banner (while the reader is a placeholder), title and a two-sentence description, the architecture diagram (`architecture.svg`, drawn in `currentColor` so it works in light and dark themes), a one-line note of the fixed assumptions, the question box, examples, an Answer button (Enter also submits). The text box takes at most 160 characters (`max_length`); this is the only length limit, and it applies in the browser, not to calls through the Space's API, the answer, the trace (an open accordion) and a link to the code.
 - **Examples** cover every outcome: an answer for each motion type and target, an implied value, a missing input, impossible motion, a number without a unit and an off-topic question.
 - **Reader + router interface:** `read(question, quantities)` returns the target (or refuse with a reason), the reading's choices in `model.reading.readings`' keys (order, sign, u0, v0, a_source), the road surface and its |a|, and each head's probability. The trained TinyLLM replaces only this function's body.
 - **Until the TinyLLM is trained**, `read` is keyword rules on the marked text:

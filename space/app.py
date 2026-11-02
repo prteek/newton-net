@@ -1,6 +1,6 @@
 """Gradio app: ask Newton net a short driving-physics question and get the answer with a trace of how it was worked out.
 
-The pipeline is decisions.md's: checker → extractor → reader + router → assembler → planner → output. The extractor
+The pipeline is decisions.md's: extractor → reader + router → assembler → planner → output. The extractor
 (model/extract.py), assembler (model/reading.py) and planner (model/planner.py) are the project's own code. The reader
 + router will be the trained TinyLLM; until it is trained, `read` is a keyword-based stand-in with the same interface.
 
@@ -8,7 +8,6 @@ Run from the repo root: uv run --with gradio==6.30.0 python space/app.py
 """
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 import gradio as gr
@@ -54,21 +53,8 @@ REVERSED = r"(to|reach\w*|up to|hit) <speed1>.*from <speed2>"
 FINAL = r"(to|reach\w*|up to|hit|get to) <speed1>"
 
 
-def check(question):
-    """1. Checker: a reason to refuse, or None."""
-    if not question.strip():
-        return "no question asked"
-    if len(question) > MAX_CHARS:
-        return f"longer than {MAX_CHARS} characters ({len(question)})"
-    if any(ord(c) > 127 and unicodedata.category(c).startswith("L") for c in question):
-        return "not English: non-English letters"
-    if question.count("?") > 1:
-        return "more than one question"
-    return None
-
-
 def read(question, quantities):
-    """3. Reader + router: what is asked and how the extracted values fit together.
+    """2. Reader + router: what is asked and how the extracted values fit together.
 
     Returns {"target": planner symbol or "refuse", "reason": why refused, "choice": the reading's choices as in
     model.reading.readings (order, sign, u0, v0, a_source), "a_learned": |a| for a road surface, "surface",
@@ -86,6 +72,8 @@ def read(question, quantities):
     refuse = None
     if re.search(OFF_TOPIC, text):
         refuse = "off topic"
+    elif text.count("?") > 1:
+        refuse = "more than one question"
     elif "?" not in text and not re.match(r"(how|what|when)\b", text):
         refuse = "no question asked"
     elif len(hits) > 1 and re.search(r"\band\b", asked):
@@ -125,7 +113,7 @@ def read(question, quantities):
 
 
 def assemble(quantities, reading):
-    """4. Assembler: the known values for the reader's choices, or (None, (stage, reason))."""
+    """3. Assembler: the known values for the reader's choices, or (None, (stage, reason))."""
     choice = reading["choice"]
     options, refusal = readings(quantities, reading["target"], reading["a_learned"], sign=choice["sign"])
     if refusal:
@@ -180,8 +168,6 @@ def assumptions(reading, known, quantities, used):
 def run(question):
     """The whole pipeline: a dict with the stage that refused and why, or the answer and its trace."""
     question = question or ""
-    if reason := check(question):
-        return {"refused_by": "checker", "reason": reason}
     quantities = extract(question)
     out = {"quantities": quantities, "marked": mask(question, quantities)}
     if problems := [q for q in quantities if q["problem"]]:
@@ -238,8 +224,6 @@ def respond(question):
         target = r["reading"]["target"]
         motion = " (braking)" if target in ("a", "F") and r["answer"] < 0 else ""
         head = f"## {TARGETS[target].capitalize()}: {target} = {display(target, r['answer'])}{motion}"
-    if "quantities" not in r:
-        return head, f"Refused by the checker before the model ran: {r['reason']}."
     parts = [f"**As the encoder sees it:** {r['marked']}", "**Values read** (extractor)", values_table(r)]
     if "reading" in r:
         parts += ["**Reader + router** (keyword stand-in: confidence is 1 until the model is trained)",

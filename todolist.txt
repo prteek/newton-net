@@ -11,7 +11,7 @@ Modelling:
   ☐ Implement TinyLLM encoder with target, order, sign, from-rest, stopping, acceleration-source and |a| heads @high
   ☐ Training loop: target cross-entropy + answer matching over readings, sign warm-up then soft sign
   ☐ Inference: most likely reading, confidence threshold, output formatter and trace
-  ☐ Checker (length, English)
+  ✘ Checker (length, English): 160 characters set on the text box, no English check @cancelled(26-11-02 10:00)
   ☐ Document architecture in writeup
 
 Data:
