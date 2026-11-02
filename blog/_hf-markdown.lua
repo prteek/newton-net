@@ -5,7 +5,7 @@ function Math(m)
   end
 end
 
--- Figures saved in assets/ link to their copy on the Hub (assets-url in the front matter, uploaded by
+-- Figures saved in assets/ link to their copy in the Hub bucket (assets-url in the front matter, uploaded by
 -- `./publish.sh <message> blog`), so the post needs no uploads in the article editor.
 local assets_url
 
@@ -17,7 +17,7 @@ end
 
 function Image(img)
   if assets_url and img.src:match("^assets/") then
-    img.src = assets_url .. "/" .. img.src
+    img.src = assets_url .. "/" .. img.src:sub(#"assets/" + 1)
     return img
   end
 end

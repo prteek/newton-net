@@ -4,8 +4,7 @@
 #            train) from dataset/generate.py, with dataset/README.md as the card
 #   model    prteek/newton-net: the model code so far (model/*.py), with model/README.md as the card; no weights yet
 #   space    prteek/newton-net: space/ (app, card, requirements, diagram) plus the model code the app imports
-#   blog     the post's figures (blog/assets/) to prteek/newton-net-questions under blog/assets/, where the post links
-#            them
+#   blog     the post's figures (blog/assets/) to the public bucket prteek/assets/newton-net/, where the post links them
 # Usage: ./publish.sh [message] [dataset|model|space|blog ...]   (default: dataset model space)
 # Set HF_CLI=hf to use an installed hf CLI instead of `uvx hf`.
 set -euo pipefail
@@ -43,7 +42,7 @@ open(sys.argv[3], 'w').write(''.join(json.dumps({**r, 'id': i}, ensure_ascii=Fal
       cp model/__init__.py model/extract.py model/reading.py model/planner.py "$stage/space/model/"
       "${hf[@]}" upload prteek/newton-net "$stage/space" . --repo-type space --commit-message "$msg" ;;
     blog)
-      "${hf[@]}" upload prteek/newton-net-questions blog/assets blog/assets --repo-type dataset --commit-message "$msg" ;;
+      "${hf[@]}" buckets sync blog/assets hf://buckets/prteek/assets/newton-net ;;
     *)
       echo "unknown target: $t" >&2; exit 1 ;;
   esac
