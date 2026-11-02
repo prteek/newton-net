@@ -13,6 +13,6 @@ updated at: 2026-10-30
 
 - Planner (`model/planner.py`): full rule set, guards, tolerances, conflict check and missing-input reasons
 - Extractor (`model/extract.py`): quantulum3 + pint with fixes for driving questions, plus value markers for the encoder
-- Readings and assembler (`model/reading.py`), with soft sign
+- Assembler (`model/assembler.py`, which also lists the readings), with soft sign
 - Data generator (`dataset/generate.py`) and PyTorch dataset (`dataset/torch_data.py`): every generated question checked against the real extractor, readings and planner
 - Not built yet: TinyLLM encoder and heads, training loop, output formatter, Space

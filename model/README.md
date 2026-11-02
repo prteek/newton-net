@@ -23,7 +23,7 @@ the answer right.
 | file | stage | status |
 |---|---|---|
 | `extract.py` | 1. Extractor: each number + unit → dimension and SI value (quantulum3 + pint); the text with values replaced by markers | done |
-| `reading.py` | 3. Assembler: the extracted values and the reader's choices → one value per quantity; lists every reading for training | done |
+| `assembler.py` | 3. Assembler: the extracted values and the reader's choices → one value per quantity; lists every reading for training | done |
 | `planner.py` | 4. Planner: shortest chain of guarded equations from the known values to the target, with conflict checks and refusal reasons; differentiable on torch tensors | done |
 | TinyLLM encoder | 2. Reader + router (learned): target, speed order, sign, implied values, road-surface \|a\| | not yet |
 

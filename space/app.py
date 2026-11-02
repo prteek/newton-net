@@ -1,7 +1,7 @@
 """Gradio app: ask Newton net a short driving-physics question and get the answer with a trace of how it was worked out.
 
 The pipeline is decisions.md's: extractor → reader + router → assembler → planner → output. The extractor
-(model/extract.py), assembler (model/reading.py) and planner (model/planner.py) are the project's own code. The reader
+(model/extract.py), assembler (model/assembler.py) and planner (model/planner.py) are the project's own code. The reader
 + router will be the trained TinyLLM; until it is trained, `read` is a keyword-based stand-in with the same interface.
 
 Run from the repo root: uv run --with gradio==6.30.0 python space/app.py
@@ -15,7 +15,7 @@ import gradio as gr
 sys.path.append(str(Path(__file__).resolve().parent.parent))  # model/ sits next to app.py on the Space, one up in the repo
 from model.extract import extract, mask
 from model.planner import solve, trace
-from model.reading import DEFAULT_MASS, readings
+from model.assembler import DEFAULT_MASS, readings
 
 CODE_URL = "https://github.com/prteek/newton-net"
 MAX_CHARS = 160
@@ -57,7 +57,7 @@ def read(question, quantities):
     """2. Reader + router: what is asked and how the extracted values fit together.
 
     Returns {"target": planner symbol or "refuse", "reason": why refused, "choice": the reading's choices as in
-    model.reading.readings (order, sign, u0, v0, a_source), "a_learned": |a| for a road surface, "surface",
+    model.assembler.readings (order, sign, u0, v0, a_source), "a_learned": |a| for a road surface, "surface",
     "probs": each head's probability for its choice}.
 
     PLACEHOLDER: keyword rules, not the trained TinyLLM. The trained model reads the same marked text and returns the

@@ -85,7 +85,7 @@ Question (≤160 chars, limited by the text box)
                    no a stated → none | 0 (cruising) | road surface → |a| (learned value)
   │
   ▼
-3. Assembler: model/reading.py (fixed)
+3. Assembler: model/assembler.py (fixed)
   │                     one value per dimension (up to two speeds); a and F → sign × |value|;
   │                     implied values fill gaps; mass 2,000 kg unless stated
   ├──────────────────── two values of one dimension, three speeds ────────► Refusal
@@ -173,7 +173,7 @@ Decides only what the extractor leaves open; anything else is the planner's job.
 - **Trained by:** the target on its label; order and implied values by matching the answer; the sign and the road-surface |a| through the planner's equations (see Training). None of them has its own label.
 
 ## 3. Assembler
-Implemented in `model/reading.py`, which also lists every reading for training.
+Implemented in `model/assembler.py`, which also lists every reading for training.
 - Combines the extractor's values with the router's choices into one value per quantity, in SI.
 - Applies the sign to a stated a and F: sign × |value|, so a value written with a minus isn't flipped twice. The sign is the expected sign 2p − 1 in training and ±1 at inference.
 - Mass is 2,000 kg unless stated (a fixed default, not learned).
@@ -242,7 +242,7 @@ Implemented in `model/planner.py`.
 `space/app.py`, a Gradio Blocks app.
 - **Layout, top to bottom:** a demo banner (while the reader is a placeholder), title and a two-sentence description, the architecture diagram (`architecture.svg`, drawn in `currentColor` so it works in light and dark themes), a one-line note of the fixed assumptions, the question box, examples, an Answer button (Enter also submits). The text box takes at most 160 characters (`max_length`); this is the only length limit, and it applies in the browser, not to calls through the Space's API, the answer, the trace (an open accordion) and a link to the code.
 - **Examples** cover every outcome: an answer for each motion type and target, an implied value, a missing input, impossible motion, a number without a unit and an off-topic question.
-- **Reader + router interface:** `read(question, quantities)` returns the target (or refuse with a reason), the reading's choices in `model.reading.readings`' keys (order, sign, u0, v0, a_source), the road surface and its |a|, and each head's probability. The trained TinyLLM replaces only this function's body.
+- **Reader + router interface:** `read(question, quantities)` returns the target (or refuse with a reason), the reading's choices in `model.assembler.readings`' keys (order, sign, u0, v0, a_source), the road surface and its |a|, and each head's probability. The trained TinyLLM replaces only this function's body.
 - **Until the TinyLLM is trained**, `read` is keyword rules on the marked text:
   - every choice has probability 1, shown as such in the trace, and no confidence threshold is applied;
   - road-surface |a| uses the generator's typical values: dry 7.5, wet 5.0, icy 2.0 m/s²;

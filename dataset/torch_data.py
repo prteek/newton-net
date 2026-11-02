@@ -5,7 +5,7 @@
 
 Each record is only a question, its answer and the unit of the quantity asked for. The target label
 comes from the unit; everything else the reader + router decides (which speed is which, the sign,
-implied values) is learned by matching the answer through the planner (model/reading.py).
+implied values) is learned by matching the answer through the planner (model/assembler.py).
 
 The extractor runs once per question when the dataset loads (about 6 ms each): each item carries the
 extracted quantities, for building readings, and the masked text the encoder reads, with every value

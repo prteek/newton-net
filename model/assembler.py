@@ -1,4 +1,5 @@
-"""Readings: every way the reader + router's choices can complete what the extractor found.
+"""Assembler: the fixed rules that complete what the extractor found, and every *reading* of it: each way
+the reader + router's choices can fill in what the values leave open.
 
 The extractor fixes each value's dimension, so the learned part only decides what the dimension
 leaves open:

@@ -14,6 +14,6 @@ Newton net answers short driving questions (≤160 characters) about motion with
 
 - `data/` — raw source data files (not committed).
 - `dataset/` — synthetic question generator (`generate.py`) and PyTorch dataset (`torch_data.py`).
-- `model/` — extractor (`extract.py`), readings and assembler (`reading.py`), planner (`planner.py`); the TinyLLM is still to come.
+- `model/` — extractor (`extract.py`), assembler (`assembler.py`, which also lists the readings), planner (`planner.py`); the TinyLLM is still to come.
 - `space/` — deployment (Hugging Face endpoint handler / demo).
 - `blog/` — write-up.

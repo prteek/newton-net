@@ -14,7 +14,7 @@ Each line of the output is one JSON record:
 
 Training uses text, answer and unit only. Which number is which quantity, the sign and any implied
 values are not labelled: the model learns them by finding the reading the planner turns into the
-answer (model/reading.py). Internally each question is built from a full scenario so the answer is
+answer (model/assembler.py). Internally each question is built from a full scenario so the answer is
 exact, and every record is checked against the real extractor, readings and planner: an answered
 question must have a reading that reproduces its answer, and a refused one must be refused at the
 right stage.
@@ -29,7 +29,7 @@ from pathlib import Path
 
 from model.extract import extract
 from model.planner import solve, trace
-from model.reading import readings
+from model.assembler import readings
 
 TARGETS = ["speed", "time", "distance", "acceleration", "force", "refuse"]
 TARGET_SYMBOL = {"speed": "v", "time": "t", "distance": "s", "acceleration": "a", "force": "F"}
