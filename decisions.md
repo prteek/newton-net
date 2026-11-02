@@ -1,9 +1,25 @@
 ---
 title: Project decisions
-updated: 2026-11-01
+updated: 2026-11-02
 ---
 
 Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
+
+# Prototype (2026-11-02)
+
+The code is a minimal, demo-first version of the design below: every stage exists, does just enough for the demo, and
+fits the others exactly. Each stage gets the detail this document describes as the project develops.
+
+| stage | now | later (sections below) |
+|---|---|---|
+| 1. Extractor (`model/extract.py`) | a regex over a table of units (mph, km/h, kph, m/s, m/s², g, s, min, hours, m, km, miles, kg, tonnes, N, kN); a number without one of them is ignored | more units, number words, ranges ("0 to 60 mph"), refusing unusable values |
+| 2. Reader + router (`model/reader.py`) | keyword rules on the marked text, returning target, speed order, sign, u0, v0 and a fixed road-surface deceleration | the trained TinyLLM with probabilities and a learned \|a\| |
+| 3. Assembler (`model/assembler.py`) | the reader's choices → one value per quantity | every reading for training, soft sign |
+| 4. Planner (`model/planner.py`) | 10 equations; applies whichever can run next (ones giving the target first) until the target is known | guards, conflict checks, tolerances, shortest plans, naming missing inputs |
+| 5. Output (`space/app.py`) | the answer, or one general refusal; the trace shows each stage's output as far as it got | stage-specific refusal reasons, assumptions, confidence |
+| Data (`dataset/generate.py`) | 13 answerable templates plus missing-input and off-topic refusals; answers from the planner on the values as written | more templates and refusal kinds, checks against the pipeline |
+
+Not built yet: the TinyLLM, the training loop and a PyTorch dataset.
 
 # Scope
 
@@ -19,7 +35,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 - Physics runs inside `TinyLLM.forward()` with gradients flowing through it. This is what makes it not tool calling and lets the model learn how to read a question from its answer alone (see System requirements → 2. Reader + router).
 - TinyLLM: a small transformer encoder over the marked text: d_model 48, 2 layers, 4 attention heads, learned positions, up to 64 tokens, dropout 0.1, a [CLS] token whose vector is the pooled h (~0.25–0.5M params). Its heads are in System requirements → 2. Reader + router.
 - Tokeniser: word-level, built from the training questions plus the value markers (`<speed1>`, `<time>`, …) and [CLS], [PAD], [UNK]; about 2k words. Simplest for a narrow domain once values are masked; revisit a small BPE vocabulary when paraphrased or real questions bring typos and unseen words.
-- A fixed extractor (quantulum3 + pint) finds each value and unit and converts it to SI; the unit's dimension fixes which quantity a value can be. Extraction and unit conversion are never learned.
+- A fixed extractor (a regex over a table of units, for now) finds each value and unit and converts it to SI; the unit's dimension fixes which quantity a value can be. Extraction and unit conversion are never learned.
 - The road-surface acceleration is one continuous learned value (the |a| head), not discrete buckets.
 - No uncertainty in the first version: each quantity has one value (a road surface gives one typical deceleration, not a range), and no intervals are propagated to the answer.
 - Every question is either answered or refused, even when ambiguous; there is no partial or conditional answer. Refusals come from the reader + router's refuse class or from a fixed stage, each with its reason.
@@ -36,7 +52,7 @@ Recorded from the 2026-10-29 design chat (`history.md`, sections 5–8).
 
 - TBD either within app itself or endpoint depending on model size
 - The app is a Gradio Space in `space/` (`app.py`, `README.md`, `requirements.txt`, `architecture.svg`), like the other HF projects. It imports `model/` directly: locally from the repo root (`uv run --with gradio==6.30.0 python space/app.py`; gradio is not a project dependency), and on the Space `model/` is copied next to `app.py` when publishing.
-- Expect a slow cold start: the first import of quantulum3, pint and torch takes about a minute.
+- Expect a slow cold start while torch first imports.
 
 # User requirements
 
@@ -72,7 +88,7 @@ The system is a pipeline of five stages. Only the reader + router is learned; ev
 Question (≤160 chars, limited by the text box)
   │
   ▼
-1. Extractor: model/extract.py (fixed: quantulum3 + pint)
+1. Extractor: model/extract.py (fixed: regex + unit table)
   │                     each number + unit → dimension and SI value;
   │                     the text with each value replaced by a marker: "at <speed1> brakes at <acceleration>"
   ├──────────────────── number without a unit, unit of another dimension ─► Refusal
@@ -137,16 +153,15 @@ Each does the half of the job the other can't.
 
 ## 1. Extractor
 Implemented in `model/extract.py`; nothing is learned.
-- quantulum3 finds each number + unit (including number words such as "seventy"); pint converts it to SI and gives its dimension: speed, acceleration, time, distance, mass or force. Any unit pint knows is accepted, so knots, ft/s or yards need no list.
-- **Fixes for quantulum3:** "g" after a number is acceleration (standard gravity), not grams; "seconds" and "minutes" are times, not angles; "to" or a dash between two values ("15 m/s to 45 mph", "0–60 mph") is split into both values, with a bare first number taking the second's unit; a unit that swallowed the next word ("27 km/h at" read as per ampere-turn) is parsed again without it.
-- **Refuses:** a number with no unit ("doing 70 in the rain") and a unit of a dimension the physics doesn't cover ("150 hp", "a 5 degree slope").
+- **Now:** a regex finds each number followed by a unit from a fixed table and converts it to SI, which also gives its dimension: speed, acceleration, time, distance, mass or force. The longest unit wins ("m/s²" over "m/s" over "m"), and "g" after a number is acceleration. A number without a known unit is ignored, so "doing 70 in the rain" is refused later for a missing speed.
+- **Later:** number words ("seventy"), ranges ("0–60 mph", where the bare 0 takes the next value's unit), more units, and refusing a value it can't use ("150 hp", "a 5 degree slope") rather than ignoring it. An earlier version used quantulum3 + pint for this, which needed several fixes for driving questions; a regex is simpler while the units are few.
 - **Not its job:** deciding which speed is the start or final speed, or the sign. The dimension fixes everything else: a time can only be t, a distance only s, a mass only m, a force only F.
 - **Marks the text for the encoder** (`mask`, in the first version): before tokenising, each value is replaced by a marker of its dimension, and the encoder never sees the numbers or units:
 
   "A 1,336 kg car goes from 15 m/s to 45 mps in 7 s. What net force acts on it?"
   → "A <mass> car goes from <speed1> to <speed2> in <time>. What net force acts on it?"
 
-  Speeds are numbered in order, because the order head reads the vectors at `<speed1>` and `<speed2>`; a value the extractor can't use becomes `<number>`. Rationale:
+  Speeds are numbered in order, because the order head reads the vectors at `<speed1>` and `<speed2>`. Rationale:
   - **No double work.** The extractor has already read the number and unit exactly. Making the encoder read "1,336", "mps" or "0.69g" again only adds things for it to get wrong.
   - **The encoder learns language, not numerals.** What it has to decide (what is asked, which speed is the start, braking or accelerating, what is implied) depends on the words around the values, not their digits. "From 15 m/s to 45 mps" and "from 30 mph to 70 mph" become the same input, so one example teaches both, and the model can't latch onto particular numbers or unit spellings in the generated data.
   - **A smaller, closed vocabulary.** Numbers and unit spellings are open-ended (every value is a new token); a handful of markers replace them, which suits a 2k–8k vocabulary and a tiny model.
@@ -173,7 +188,7 @@ Decides only what the extractor leaves open; anything else is the planner's job.
 - **Trained by:** the target on its label; order and implied values by matching the answer; the sign and the road-surface |a| through the planner's equations (see Training). None of them has its own label.
 
 ## 3. Assembler
-Implemented in `model/assembler.py`, which also lists every reading for training.
+Implemented in `model/assembler.py`. Listing every reading for training (and the soft sign below) comes with the training loop.
 - Combines the extractor's values with the router's choices into one value per quantity, in SI.
 - Applies the sign to a stated a and F: sign × |value|, so a value written with a minus isn't flipped twice. The sign is the expected sign 2p − 1 in training and ±1 at inference.
 - Mass is 2,000 kg unless stated (a fixed default, not learned).
@@ -183,6 +198,9 @@ Implemented in `model/assembler.py`, which also lists every reading for training
 
 ## 4. Planner
 Implemented in `model/planner.py`.
+- **Now:** 10 equations (v = u + a·t, v = √(u² + 2as), a = F/m, a = (v − u)/t, a = (v² − u²)/2s, s = u·t + a·t²/2, s = (v² − u²)/2a, t = (v − u)/a, t = 2s/(u + v), F = m·a). It applies whichever rule can run next, trying rules that give the target first, until the target is known; a rule that divides by zero or takes a negative square root is skipped. It returns the steps and values, or nothing when the target can't be reached. Everything below the line is the planned design, not built yet.
+
+---
 - **Takes:** a target name and a dict of known values in SI, keyed u, v, a, t, s, m, F, with a signed and implied values already filled in. Values can be floats or torch tensors, so gradients flow through a plan.
 - **Returns:** the steps applied (each a rule with its formula text) and every value computed, or a refusal reason.
 - **Rules:** each equation solved for each unknown:
@@ -224,6 +242,7 @@ Implemented in `model/planner.py`.
 - **Refusal:**
   - Extractor, reader + router and assembler: the fixed message from User requirements → Output, plus the stage and its reason.
   - Planner: a plain-language reason instead of the fixed message, since the question was understood and the reason says exactly what to fix:
+    - (planned; the prototype shows one general refusal for every stage, with the trace of what ran)
     - missing input → "Not enough information. Add the starting speed, or the acceleration and time.";
     - conflict → "The values given contradict each other: a is given as 2.5, but a = F/m gives 5.068";
     - guard → "That motion isn't possible: it stops after 4 s, before 6 s."
@@ -241,10 +260,10 @@ Implemented in `model/planner.py`.
 ## 6. App
 `space/app.py`, a Gradio Blocks app.
 - **Layout, top to bottom:** a demo banner (while the reader is a placeholder), title and a two-sentence description, the architecture diagram (`architecture.svg`, drawn in `currentColor` so it works in light and dark themes), a one-line note of the fixed assumptions, the question box, examples, an Answer button (Enter also submits). The text box takes at most 160 characters (`max_length`); this is the only length limit, and it applies in the browser, not to calls through the Space's API, the answer, the trace (an open accordion) and a link to the code.
-- **Examples** cover every outcome: an answer for each motion type and target, an implied value, a missing input, impossible motion, a number without a unit and an off-topic question.
-- **Reader + router interface:** `read(question, quantities)` returns the target (or refuse with a reason), the reading's choices in `model.assembler.readings`' keys (order, sign, u0, v0, a_source), the road surface and its |a|, and each head's probability. The trained TinyLLM replaces only this function's body.
+- **Examples** (all on one page) cover each motion type and target, starting with a two-step plan (braking force between two speeds): braking time, distance on a wet road, deceleration for an obstacle, speed at a wall, accelerating time, distance and force, cruising distance, plus a missing input and an off-topic question.
+- **Reader + router interface:** `model.reader.read(marked)` takes the marked text and returns the target, speed order, sign, u0, v0 and a_source (the road surface's deceleration, 0 for cruising, or none), or None to refuse. The trained TinyLLM replaces only this function's body.
 - **Until the TinyLLM is trained**, `read` is keyword rules on the marked text:
-  - every choice has probability 1, shown as such in the trace, and no confidence threshold is applied;
+  - there are no probabilities and no confidence threshold;
   - road-surface |a| uses the generator's typical values: dry 7.5, wet 5.0, icy 2.0 m/s²;
   - the banner says it is a demo, not the real model.
 

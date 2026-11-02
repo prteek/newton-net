@@ -1,6 +1,6 @@
 ---
 title: Project status
-updated at: 2026-10-30
+updated at: 2026-11-02
 ---
 
 # Design
@@ -11,8 +11,11 @@ updated at: 2026-10-30
 
 # Build
 
-- Planner (`model/planner.py`): full rule set, guards, tolerances, conflict check and missing-input reasons
-- Extractor (`model/extract.py`): quantulum3 + pint with fixes for driving questions, plus value markers for the encoder
-- Assembler (`model/assembler.py`, which also lists the readings), with soft sign
-- Data generator (`dataset/generate.py`) and PyTorch dataset (`dataset/torch_data.py`): every generated question checked against the real extractor, readings and planner
-- Not built yet: TinyLLM encoder and heads, training loop, output formatter, Space
+- 2026-11-02: cut back to a minimal, demo-first prototype in which every stage is just enough for the demo and fits the others (decisions.md, Prototype):
+  - Extractor (`model/extract.py`): regex over a table of units, plus value markers
+  - Reader + router (`model/reader.py`): keyword stand-in for the TinyLLM
+  - Assembler (`model/assembler.py`): the reader's choices → known values
+  - Planner (`model/planner.py`): 10 equations, applied until the target is known
+  - Data generator (`dataset/generate.py`): 13 templates plus refusals; answers from the planner on the values as written
+  - Space (`space/app.py`): answer or one general refusal, with a trace of each stage
+- Not built yet: TinyLLM encoder and heads, training loop, PyTorch dataset

@@ -14,25 +14,31 @@ datasets:
 
 A tiny language model plus a fixed, differentiable Newtonian planner (the equations of motion and F = m·a) in one
 computation graph. It answers short driving questions ("doing 70 mph in the rain, how far to stop?") with exact maths
-and a trace of every step, and refuses anything it can't answer, with the reason. An alternative to LLM tool calling:
+and a trace of every step, and refuses anything it can't answer. An alternative to LLM tool calling:
 the physics runs inside the model's forward pass, so the reader learns to read questions from whether the physics gets
 the answer right.
 
-**Status: work in progress, no trained weights yet.** This repo holds the code written so far for the model:
+**Status: work in progress, no trained weights yet.** This repo holds the pipeline as a minimal first version, each
+stage just enough for the demo:
 
-| file | stage | status |
-|---|---|---|
-| `extract.py` | 1. Extractor: each number + unit → dimension and SI value (quantulum3 + pint); the text with values replaced by markers | done |
-| `assembler.py` | 3. Assembler: the extracted values and the reader's choices → one value per quantity; lists every reading for training | done |
-| `planner.py` | 4. Planner: shortest chain of guarded equations from the known values to the target, with conflict checks and refusal reasons; differentiable on torch tensors | done |
-| TinyLLM encoder | 2. Reader + router (learned): target, speed order, sign, implied values, road-surface \|a\| | not yet |
+| file | stage |
+|---|---|
+| `extract.py` | 1. Extractor: each number + unit → dimension and SI value (regex over a table of units); the text with values replaced by markers |
+| `reader.py` | 2. Reader + router: what is asked and how the values fit together; keyword rules standing in for the TinyLLM |
+| `assembler.py` | 3. Assembler: the extracted values and the reader's choices → one value per quantity |
+| `planner.py` | 4. Planner: chains the equations of motion to the target; differentiable on torch tensors |
 
 ```python
+from model.assembler import assemble
 from model.extract import extract, mask
-from model.planner import solve, trace
+from model.planner import solve
+from model.reader import read
 
-steps, values, reason = solve({"u": 20.0, "v": 0.0, "a": -5.0}, "s")
-print(trace(steps, values))  # ['s = (v² - u²)/2a = 40']
+question = "A car at 30 m/s brakes at 0.7g. How long until it stops?"
+quantities = extract(question)
+choice = read(mask(question, quantities))
+steps, values = solve(assemble(quantities, choice), choice["target"])
+print(steps)  # ['t = (v - u)/a = 4.37']
 ```
 
 - Training data: [prteek/newton-net-questions](https://huggingface.co/datasets/prteek/newton-net-questions)

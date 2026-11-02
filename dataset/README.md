@@ -31,17 +31,21 @@ Code: [github.com/prteek/newton-net](https://github.com/prteek/newton-net).
 | `id` | row number within the split |
 | `text` | the question |
 | `answer` | the answer in SI, signed (negative acceleration or force when braking); null when the question should be refused |
-| `unit` | SI unit of the quantity asked for (`m/s`, `s`, `m`, `m/s2`, `N`), which names the target; null when the question isn't one the system answers at all |
-| `case` | why it is answered or refused, for evaluation only: `answer`, `off_topic`, `ambiguous`, `multiple_questions`, `no_question`, `bad_unit`, `duplicate`, `missing_input`, `conflict`, `impossible` |
+| `unit` | SI unit of the quantity asked for (`m/s`, `s`, `m`, `m/s2`, `N`), which names the target; null when the question is off topic |
+| `case` | why it is answered or refused, for evaluation only: `answer`, `missing_input` (a quantity is asked for but not enough is given), `off_topic` |
 
 Training uses `text`, `answer` and `unit` only: which number is which quantity, the sign and any implied values (from
 rest, a stop, a wet road) are not labelled, and the model learns them by matching the answer through the planner.
 
-**How it is made:** `dataset/generate.py` builds each question from templates and a full, consistent physical scenario,
-so answers are exact. Every record is checked against the project's real extractor, readings and planner: an answered
-question must have a reading that reproduces its answer, and a refused one must be refused at the right stage.
-`train` is 5,000 questions (seed 0) and `test` 1,000 (seed 1) less any whose text is also in `train`. About 60% are
-answered; the rest are refusals of each kind.
+**How it is made:** `dataset/generate.py` fills each question in from a template and a random, consistent physical
+scenario. Values are written in units the project's extractor reads, and the answer is the project's planner applied to
+the values as written plus what the question implies (a stop means v = 0, from rest u = 0, cruising a = 0, braking on a
+road its typical deceleration), so answers are exact. `train` is 5,000 questions (seed 0) and `test` 1,000 (seed 1) less
+any whose text is also in `train`. About 80% are answered, 10% ask for something without giving enough, and 10% are
+off topic.
+
+**Preliminary:** this matches the project's first, minimal prototype: 13 answerable templates and a few refusals.
+More templates and kinds of refusal (ambiguous, contradictory, impossible motion) come as the project develops.
 
 **Limitations:** the questions come from a fixed set of templates, so wording is far narrower than real questions, and
 the test split shares templates with train (it tests new numbers and units, not new phrasing). Reaction time and

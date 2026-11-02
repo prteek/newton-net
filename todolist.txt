@@ -17,7 +17,16 @@ Modelling:
 Data:
   ☐ Build synthetic data using LLMs @high
 
+Prototype → full design (decisions.md, Prototype):
+  ☐ Extractor: number words, ranges ("0 to 60 mph"), more units, refuse unusable values
+  ☐ Planner: guards, conflict check, tolerances, shortest plans, naming missing inputs
+  ☐ Assembler: list every reading for training, soft sign
+  ☐ Output: stage-specific refusal reasons, assumptions, confidence
+  ☐ Data: more templates and refusal kinds (ambiguous, conflict, impossible motion), checks against the pipeline
+  ☐ PyTorch dataset for training
+
 Archive:
+  ✔ Cut back to a minimal demo-first prototype: regex extractor, keyword reader, simple assembler and planner, generator and app to match @done(26-11-02) @project(Modelling)
   ✔ Planner with full rule set, guards, tolerances and conflict check @done(26-10-30) @project(Modelling)
   ✔ Extractor with quantulum3 + pint and value markers @done(26-10-30) @project(Modelling)
   ✔ Readings and assembler with soft sign @done(26-10-30) @project(Modelling)

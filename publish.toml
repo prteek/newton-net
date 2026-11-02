@@ -14,13 +14,13 @@ files = { "." = ["dataset/README.md"] }
 [targets.model]
 repo = "prteek/newton-net"
 type = "model"
-files = { "." = ["model/README.md"], "model" = ["model/__init__.py", "model/extract.py", "model/assembler.py", "model/planner.py"] }
+files = { "." = ["model/README.md"], "model" = ["model/__init__.py", "model/extract.py", "model/reader.py", "model/assembler.py", "model/planner.py"] }
 
 # prteek/newton-net: the app, card, requirements and diagram, plus the model code the app imports
 [targets.space]
 repo = "prteek/newton-net"
 type = "space"
-files = { "." = ["space/app.py", "space/README.md", "space/requirements.txt", "space/architecture.svg"], "model" = ["model/__init__.py", "model/extract.py", "model/assembler.py", "model/planner.py"] }
+files = { "." = ["space/app.py", "space/README.md", "space/requirements.txt", "space/architecture.svg"], "model" = ["model/__init__.py", "model/extract.py", "model/reader.py", "model/assembler.py", "model/planner.py"] }
 
 # the post's figures, in the public bucket where the post links them
 [targets.blog]
