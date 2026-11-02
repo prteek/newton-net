@@ -266,7 +266,13 @@ with gr.Blocks(title="Newton net") as demo:
         "# Newton net: exact driving physics from a question\n"
         "Ask one short question about braking, accelerating or cruising. A reader works out what is asked and what is "
         "known, and a fixed planner chains the equations of motion to an exact answer, with a trace of every step or a "
-        "refusal with the reason."
+        "refusal with the reason.\n\n"
+        "**How it differs from a typical LLM**\n"
+        "- The maths is exact: the network only reads the question; a fixed planner inside the same forward pass "
+        "does the physics, so numbers are never guessed token by token, and no tool is called.\n"
+        "- Every answer shows its working (values read, assumptions, each equation), and anything it can't work out "
+        "is refused with the reason instead of answered anyway.\n"
+        "- It is tiny (about 0.5M parameters, CPU only) because it only learns to read; the physics needs no training."
     )
     gr.HTML(DIAGRAM)
     gr.Markdown(
