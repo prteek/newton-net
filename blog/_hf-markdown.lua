@@ -6,7 +6,7 @@ function Math(m)
 end
 
 -- Figures saved in assets/ link to their copy in the Hub bucket (assets-url in the front matter, uploaded by
--- `./publish.sh <message> blog`), so the post needs no uploads in the article editor.
+-- `hf publish -m <message> blog`), so the post needs no uploads in the article editor.
 local assets_url
 
 function Meta(meta)

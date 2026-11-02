@@ -1,0 +1,29 @@
+# Publish to Hugging Face with `hf publish -m "message" [target ...]` (the hf-publish extension:
+# `hf extensions install prteek/hf-publish`; locally `hf auth login` as prteek, in CI HF_TOKEN).
+default = ["dataset", "model", "space"]
+
+# prteek/newton-net-questions: train (5,000 questions, seed 0) and test (1,000, seed 1, less any text also in train)
+# from dataset/generate.py, with dataset/README.md as the card
+[targets.dataset]
+repo = "prteek/newton-net-questions"
+type = "dataset"
+build = "bash dataset/build.sh"
+files = { "." = ["dataset/README.md"] }
+
+# prteek/newton-net: the model code so far, with model/README.md as the card; no weights yet
+[targets.model]
+repo = "prteek/newton-net"
+type = "model"
+files = { "." = ["model/README.md"], "model" = ["model/__init__.py", "model/extract.py", "model/reading.py", "model/planner.py"] }
+
+# prteek/newton-net: the app, card, requirements and diagram, plus the model code the app imports
+[targets.space]
+repo = "prteek/newton-net"
+type = "space"
+files = { "." = ["space/app.py", "space/README.md", "space/requirements.txt", "space/architecture.svg"], "model" = ["model/__init__.py", "model/extract.py", "model/reading.py", "model/planner.py"] }
+
+# the post's figures, in the public bucket where the post links them
+[targets.blog]
+type = "bucket"
+bucket = "prteek/assets/newton-net"
+dir = "blog/assets"

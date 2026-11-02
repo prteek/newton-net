@@ -1,7 +1,7 @@
 ---
 # The blog post: `QUARTO_PYTHON=.venv/bin/python quarto render blog/index.qmd` (from the repo root) writes newton-net.md
 # next to this file, ready to paste into the Hugging Face article editor, with its figures linked from the Hub bucket
-# (assets-url; upload them first with `./publish.sh <message> blog`).
+# (assets-url; upload them first with `hf publish -m <message> blog`).
 assets-url: https://huggingface.co/buckets/prteek/assets/resolve/newton-net
 format:
   gfm:
